@@ -55,3 +55,16 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 
 * Settings window for connecting to a WiFi network etc.
 
+# BOM
+
+* ESP32 module. 
+  I used Lolin32 board. NodeMCU and Lolin D32 should work as well
+* An encoder handwheel. I used a 3D-printed wheel on top of a popular 30 ppr quadrature encoder
+* 2 potentiometers as jog axis selector and jog multiplier selector. 
+  Clicking apparatus added via 3D-printed knobs.
+* 128x64 LCD based on ST7920 chip with SPI interface. 
+* MicroSD slot (I used a shield for Wemos D1 Mini boards, but any will do)
+* Buttons (I have not decided on quantity yet)
+* 2 resistors or level shifter for 5V UART
+* Might be needed: level shifter for 5V LCD, diode+resistor for LCD SPI bugfix
+* wires, cable, connector for 3D printer and CNC boards 
