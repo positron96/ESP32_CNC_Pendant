@@ -1,0 +1,57 @@
+# Intro 
+
+I have a Creality Ender 3 3D printer and when I need to print anything, I constantly have to pull SD card from the printer, stick it into PC, copy files, pull from PC, stick into printer, wash, rinse, repeat. 
+That operations add add mechanical wear to uSD cards, slots, not to mention they  waste time and take some fun away from 3D printing.
+I've tried Octoprint and a Raspberry Pi connected to a printer, but 1) there is no control over Octoprint without connected PC (and I want autonomous printing) and 2) it boots for almost a minute!
+
+Also, I have a chineese 3018 CNC device with a laser, for which I need a CNC pendant for manually moving laser to stock zero position.
+This might be solved via a joystick and specialized PC software (since my CNC jobs are short and connecting PC is not problem), but having a CNC pendant felt way cooler.
+
+So I started this project to make follwoing usecases possible:
+
+* Connect a pendant to 3D printer, upload files to it over WiFi, then print autonomously, without the need for PC. Usual Marlin-level interface should be available for Z-babystepping, feedrate adjustment, pause/stop, filament change etc.
+** 3D printer firmware: Marlin.
+** Bonus: octoprint interface for controlling the print from PC.
+
+* Connect a pendant to a CNC machine for easy jogging, setting center of working coordinates. Then either upload a file via WiFi and machine from pendant, or send gcode via WiFi to machine via pendant.
+** CNC firmware: GRBL.
+
+* Bonus: Bluetooth serial prifile for gcode streaming.
+
+
+This project is inspired by https://github.com/probonopd/WirelessPrinting[WirelessPrinting] (3D printing part), 
+https://github.com/drandrewthomas/ESP32_GRBL_CNC_Wireless_Pendant[ESP32 GRBL Wireless Pendant] (CNC part) with some ideas from https://github.com/cncjs/cncjs[cncjs].
+
+The full project consists of a ESP32 firmware, a rudimentary schematic for electronics and a case. 
+
+This repo contains the firmware sourcecode.
+It written with Arduino framekwork, to be built by PlatformIO system.
+This is for ease of adoption of the project by a community. 
+
+The electronics would use widely available cheap components, schematic would be created _ad-hoc_, no complex circuitry is expected.
+
+The case is modeled in Fusion 360 and will be published on thingiverse once prototypes are working.
+
+## Features and specification:
+
+**At the moment, this is more of a TODO-list!**
+
+
+* Connection to device via UART (I've considered USB in USB-host mode, but it requires battery circuitry since printer won't power the pendant via USB)
+
+* Autodetection of device firmware: Marlin/grbl
+
+* uSD card for storing files
+
+* WiFi
+** Uploading files to ESP32 from PC (Octoprint interface? Web interface? Some generic file transfer protocol?)
+** Direct TCP/IP to UART bridge
+
+* User interace
+** LCD, Jog wheel, buttons, axis selector, multiplier selector
+** 2 main UI modes:
+*** Jogging
+*** Printing from a file. Includes a file browser and printing status window
+
+* Settings window for connecting to a WiFi network etc.
+
