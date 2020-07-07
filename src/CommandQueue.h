@@ -45,6 +45,10 @@ public:
       return head == tailAck;
     }
 
+    bool hasUnsent() {
+        return head != tailSend;
+    }
+
     // If there is a command pending to be sent returns it
     String peekSend() {
       return (tailSend == head) ? String() : buf[tailSend];

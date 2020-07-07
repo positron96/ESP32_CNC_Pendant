@@ -30,6 +30,7 @@ HardwareSerial PrinterSerial(2);
 U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD); 
 
 CommandQueue<16, 100> commandQueue;
+CommandQueue<3, 0> immediateQueue;
 
 File root;
 File gcodeFile;
@@ -179,7 +180,16 @@ inline void restartSerialTimeout() {
 }
 
 void sendCommands() {
-    String command = commandQueue.peekSend();
+    String command;
+    if(immediateQueue.hasUnsent() ) {
+        command = immediateQueue.markSent();
+        PrinterSerial.print(command);
+        PrinterSerial.print("\n");
+        restartSerialTimeout();
+        DEBUGF("Sent '%s', immediate\n", command.c_str());
+        return;
+    }
+    command = commandQueue.peekSend();
     if (command != "") {
         String s = commandQueue.markSent();
         if(s=="") {
@@ -210,11 +220,11 @@ void receiveResponses() {
             //DEBUGF("Got response %s\n", serialResponse.c_str() );
 
             if (resp.startsWith("ok", lineStartPos)) {
-                commandQueue.markAcknowledged();
+                if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
                 responseDetail = "ok";
             } else 
             if (resp.startsWith("error") ) {
-                commandQueue.markAcknowledged();
+                if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
                 responseDetail = "error";
             } else
             if ( resp.startsWith("<") ) {
@@ -278,8 +288,8 @@ void loop() {
 
     static uint32_t nextPosRequestTime;
     if(millis() > nextPosRequestTime) {
-        commandQueue.push("?");
-        nextPosRequestTime = millis() + 250;
+        immediateQueue.push("?");
+        nextPosRequestTime = millis() + 1000;
     }
 
     sendCommands();
