@@ -36,6 +36,7 @@ File gcodeFile;
 uint32_t gcodeFileSize;
 bool gcodeFilePrinting = false;
 float gcodeFilePercentage = 0;
+float droX, droY, droZ;
 
 enum class JogAxis {
     X,Y,Z
@@ -117,11 +118,28 @@ void setup() {
     gcodeFileSize = gcodeFile.size();
 }
 
+void parseGrblStatus(String v) {
+    //<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
+    DEBUGF("parsing %s\n", v.c_str() );
+    int pos;
+    pos = v.indexOf('|');
+    if(pos==-1) return;
+    String stat = v.substring(1,pos);
+    v = v.substring(pos+1);
+    if(v.startsWith("MPos:")) {
+        int p2 = v.indexOf(',');
+        droX = v.substring(5, p2).toFloat();
+        v = v.substring(p2+1);
+        p2 = v.indexOf(',');
+        droY = v.substring(0, p2).toFloat();
+        v = v.substring(p2+1);
+        p2 = v.indexOf('|');
+        droZ = v.substring(0, p2).toFloat();
+    }
+
+}
+
 void scheduleGcode() {
-    //++lastPrintedLine;
-
-    static uint32_t filePos = 0;
-
     if(!gcodeFilePrinting) return;
 
     if(commandQueue.getFreeSlots() > 3) { // } && commandQueue.getRemoteFreeSpace()>0) {
@@ -198,6 +216,9 @@ void receiveResponses() {
             if (resp.startsWith("error") ) {
                 commandQueue.markAcknowledged();
                 responseDetail = "error";
+            } else
+            if ( resp.startsWith("<") ) {
+                parseGrblStatus(resp);
             }
             DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
             resp = "";
@@ -231,14 +252,21 @@ void processEnc() {
 
 
 void draw() {
-    u8g2.clearBuffer();
-    u8g2.drawStr(10, 10, axisStr(cAxis).c_str() ); 
-    u8g2.drawStr(10, 20, distStr(cDist).c_str() ); 
-
-    u8g2.drawStr(0, 30, gcodeFilePrinting ? "P" : "");
     char str[100];
+
+    u8g2.clearBuffer();
+    
+    snprintf(str, 100, "X: %.3f", droX );   u8g2.drawStr(10, 0, str ); 
+    snprintf(str, 100, "Y: %.3f", droY );   u8g2.drawStr(10, 10, str ); 
+    snprintf(str, 100, "Z: %.3f", droZ );   u8g2.drawStr(10, 20, str ); 
+
+    snprintf(str, 100, "%s %s", axisStr(cAxis).c_str(), distStr(cDist).c_str()  );
+    u8g2.drawStr(10, 30, str ); 
+
+    u8g2.drawStr(0, 40, gcodeFilePrinting ? "P" : "");
+    
     snprintf(str, 100, "%d%%", int(gcodeFilePercentage*100) );
-    u8g2.drawStr(10, 30, str);
+    u8g2.drawStr(10, 40, str);
     u8g2.sendBuffer();
 }
 
@@ -247,6 +275,12 @@ void loop() {
     processEnc();
 
     scheduleGcode();
+
+    static uint32_t nextPosRequestTime;
+    if(millis() > nextPosRequestTime) {
+        commandQueue.push("?");
+        nextPosRequestTime = millis() + 250;
+    }
 
     sendCommands();
 
