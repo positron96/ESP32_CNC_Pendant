@@ -25,11 +25,15 @@ HardwareSerial PrinterSerial(2);
 #define PIN_CE_LCD  4
 #define PIN_RST_LCD 22
 
+#define KEEPALIVE_INTERVAL 2500         // Marlin defaults to 2 seconds, get a little of margin
+
 U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD); 
 
-CommandQueue<> commandQueue;
+CommandQueue<16, 100> commandQueue;
 
 File root;
+File gcodeFile;
+uint32_t gcodeFileSize;
 
 enum class JogAxis {
     X,Y,Z
@@ -124,22 +128,65 @@ void setup() {
     Serial.println("initialization done.");
 
     root = SD.open("/");
+    gcodeFile = SD.open("/meat.nc");
+    gcodeFileSize = gcodeFile.size();
+}
+
+void scheduleGcode() {
+    //++lastPrintedLine;
+    if(cAxis!=JogAxis::Z) return;
+
+    static uint32_t filePos = 0;
+    static bool printing = true;
+
+    if(!printing) return;
+
+    if(commandQueue.getFreeSlots() > 3) { // } && commandQueue.getRemoteFreeSpace()>0) {
+        int rd;
+        char cline[256];
+        uint32_t len=0;
+        while(( rd=gcodeFile.read()) > 0) {
+            if(rd=='\n' || rd=='\r') break;
+            cline[len++] = rd;
+            filePos++;
+        }        
+        if(rd==-1) printing = false;
+
+        cline[len]=0;
+
+        if(len==0) return;
+
+        String line(cline);
+        DEBUGF("popped line '%s', len %d\n", line.c_str(), len );
+
+        int pos = line.indexOf(';');
+        if(pos!=-1) line = line.substring(0, pos);
+
+        if(line.length()==0) return;
+
+        commandQueue.push(line);
+
+    }
+
+}
+
+uint32_t serialReceiveTimeoutTimer;
+
+inline void restartSerialTimeout() {
+  serialReceiveTimeoutTimer = millis() + KEEPALIVE_INTERVAL;
 }
 
 void sendCommands() {
-    String command = commandQueue.peekSend();  //gets the next command to be sent
+    String command = commandQueue.peekSend();
     if (command != "") {
-        bool noResponsePending = commandQueue.isAckEmpty();
-        if (noResponsePending) {  // Let's use no more than 75% of printer RX buffer
-            //if (noResponsePending)
-            //    restartSerialTimeout();   // Receive timeout has to be reset only when sending a command and no pending response is expected
-            PrinterSerial.print(command);          // Send to 3D Printer
+        String s = commandQueue.markSent();
+        if(s=="") {
+            DEBUGF("Not sent, free space: %d\n", commandQueue.getRemoteFreeSpace());
+        } else {
+            DEBUGF("Sent '%s', free spacee %d\n", command.c_str(), commandQueue.getRemoteFreeSpace());
+            PrinterSerial.print(command);  
             PrinterSerial.print("\n");
-            //printerUsedBuffer += command.length();
-            //lastCommandSent = command;
-            commandQueue.popSend();
-
-            DEBUGF("Sending %s\n", command.c_str() );
+            restartSerialTimeout();
         }
     }
 }
@@ -148,28 +195,28 @@ String lastReceivedResponse;
 
 void receiveResponses() {
     static int lineStartPos = 0;
-    static String serialResponse;
+    static String resp;
 
     while (PrinterSerial.available()) {
         char ch = (char)PrinterSerial.read();
         if (ch != '\n')
-            serialResponse += ch;
+            resp += ch;
         else {
             bool incompleteResponse = false;
             String responseDetail = "";
 
             //DEBUGF("Got response %s\n", serialResponse.c_str() );
 
-            if (serialResponse.startsWith("ok", lineStartPos)) {
-                unsigned int cmdLen = commandQueue.popAcknowledge().length();     // Go on with next command
-                
+            if (resp.startsWith("ok", lineStartPos)) {
+                commandQueue.markAcknowledged();
                 responseDetail = "ok";
             } else 
-            if (serialResponse.startsWith("error") ) {
-                commandQueue.popAcknowledge();
+            if (resp.startsWith("error") ) {
+                commandQueue.markAcknowledged();
                 responseDetail = "error";
             }
-            
+            DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
+            resp = "";
         }
     }
 
@@ -198,8 +245,9 @@ void draw() {
 
 void loop() {
     processPot();
+    processEnc();
 
-    processEnc();    
+    scheduleGcode();
 
     sendCommands();
 
