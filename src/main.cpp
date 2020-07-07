@@ -34,6 +34,8 @@ CommandQueue<16, 100> commandQueue;
 File root;
 File gcodeFile;
 uint32_t gcodeFileSize;
+bool gcodeFilePrinting = false;
+float gcodeFilePercentage = 0;
 
 enum class JogAxis {
     X,Y,Z
@@ -66,30 +68,10 @@ JogAxis cAxis;
 JogDist cDist;
 
 
-void encISR() {
-    static int last1=0;
-
-    int v1 = digitalRead(PIN_ENC1);
-    int v2 = digitalRead(PIN_ENC2);
-    if(v1==HIGH && last1==LOW) {
-        if(v2==HIGH) encVal++; else encVal--;
-    }
-    if(v1==LOW && last1==HIGH) {
-        if(v2==LOW) encVal++; else encVal--;
-    }
-    last1 = v1;
-}
-
-void processEnc() {
-    static int lastEnc;
-    //static uint32_t 
-    if(encVal != lastEnc) {
-        int8_t dx = (encVal - lastEnc);
-        bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
-        //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
-    }
-    lastEnc = encVal;
-}
+void encISR();
+void bt1ISR();
+void bt2ISR();
+void bt3ISR();
 
 
 
@@ -103,6 +85,9 @@ void setup() {
     pinMode(PIN_ENC2, INPUT_PULLUP);
 
     attachInterrupt(PIN_ENC1, encISR, CHANGE);
+    attachInterrupt(PIN_BT1, bt1ISR, CHANGE);
+    attachInterrupt(PIN_BT2, bt2ISR, CHANGE);
+    attachInterrupt(PIN_BT3, bt3ISR, CHANGE);
 
     PrinterSerial.begin(115200);
 
@@ -134,23 +119,22 @@ void setup() {
 
 void scheduleGcode() {
     //++lastPrintedLine;
-    if(cAxis!=JogAxis::Z) return;
 
     static uint32_t filePos = 0;
-    static bool printing = true;
 
-    if(!printing) return;
+    if(!gcodeFilePrinting) return;
 
     if(commandQueue.getFreeSlots() > 3) { // } && commandQueue.getRemoteFreeSpace()>0) {
         int rd;
         char cline[256];
         uint32_t len=0;
-        while(( rd=gcodeFile.read()) > 0) {
+        while( gcodeFile.available() ) {
+            rd = gcodeFile.read();
             if(rd=='\n' || rd=='\r') break;
             cline[len++] = rd;
-            filePos++;
         }        
-        if(rd==-1) printing = false;
+        if(gcodeFile.available()==0) gcodeFilePrinting = false;
+        gcodeFilePercentage = 1.0 - gcodeFile.available()*1.0/gcodeFileSize;
 
         cline[len]=0;
 
@@ -234,12 +218,27 @@ void processPot() {
     
 }
 
+void processEnc() {
+    static int lastEnc;
+    //static uint32_t 
+    if(encVal != lastEnc) {
+        int8_t dx = (encVal - lastEnc);
+        bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+        //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
+    }
+    lastEnc = encVal;
+}
+
+
 void draw() {
     u8g2.clearBuffer();
-    //char str[100];
-    //snprintf(str, 100, "%d", i++);
     u8g2.drawStr(10, 10, axisStr(cAxis).c_str() ); 
     u8g2.drawStr(10, 20, distStr(cDist).c_str() ); 
+
+    u8g2.drawStr(0, 30, gcodeFilePrinting ? "P" : "");
+    char str[100];
+    snprintf(str, 100, "%d%%", int(gcodeFilePercentage*100) );
+    u8g2.drawStr(10, 30, str);
     u8g2.sendBuffer();
 }
 
@@ -283,3 +282,53 @@ void loop() {
 }
 
 
+IRAM_ATTR void encISR() {
+    static int last1=0;
+
+    int v1 = digitalRead(PIN_ENC1);
+    int v2 = digitalRead(PIN_ENC2);
+    if(v1==HIGH && last1==LOW) {
+        if(v2==HIGH) encVal++; else encVal--;
+    }
+    if(v1==LOW && last1==HIGH) {
+        if(v2==LOW) encVal++; else encVal--;
+    }
+    last1 = v1;
+}
+
+
+IRAM_ATTR void btChanged(uint8_t pin) {
+  uint8_t val = digitalRead(pin);
+  if(val == LOW) { // pressed
+    DEBUGFI("Pressed pin %d\n", pin);
+    
+  }
+}
+
+IRAM_ATTR void bt1ISR() {
+  static long lastChangeTime = millis();
+  if(millis() < lastChangeTime+10) return;
+  lastChangeTime = millis();
+  btChanged(PIN_BT1);
+}
+
+IRAM_ATTR void bt2ISR() {
+  static long lastChangeTime = millis();
+  if(millis() < lastChangeTime+10) return;
+  lastChangeTime = millis();
+  btChanged(PIN_BT2);
+}
+
+IRAM_ATTR void bt3ISR() {
+  static long lastChangeTime = millis();
+  
+  if(millis() < lastChangeTime+10) return;
+  lastChangeTime = millis();
+  bool val = digitalRead(PIN_BT3) == LOW;
+  if(val) {
+      gcodeFilePrinting = !gcodeFilePrinting;
+      DEBUGFI("bt3: filePrinting=%d\n", gcodeFilePrinting);
+  }
+  
+
+}

@@ -13,7 +13,7 @@ So I started this project to make follwoing usecases possible:
 ** 3D printer firmware: Marlin.
 ** Bonus: octoprint interface for controlling the print from PC.
 
-* Connect a pendant to a CNC machine for easy jogging, setting center of working coordinates. Then either upload a file via WiFi and machine from pendant, or send gcode via WiFi to machine via pendant.
+* Connect a pendant to a CNC machine for DRO (digital read-out), easy jogging, setting center of working coordinates. Then either upload a file via WiFi and machine from pendant, or send gcode via WiFi to machine via pendant.
 ** CNC firmware: GRBL.
 
 * Bonus: Bluetooth serial prifile for gcode streaming.
@@ -50,10 +50,10 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 * User interace
 ** LCD, Jog wheel, buttons, axis selector, multiplier selector
 ** 2 main UI modes:
-*** Jogging
-*** Printing from a file. Includes a file browser and printing status window
+*** Jogging and DRO
+*** Printing from a file. Includes a file browser and printing status window a-la Marlin LCD interface.
 
-* Settings window for connecting to a WiFi network etc.
+* Settings window for connecting to a WiFi network etc (this idea might be dropped since entering WiFi password would be a pain).
 
 # BOM
 
