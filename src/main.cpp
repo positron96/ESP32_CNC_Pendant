@@ -4,7 +4,8 @@
 #include <SD.h>
 #include <U8g2lib.h>
 
-#include <CommandQueue.h>
+#include "CommandQueue.h"
+#include "FileChooser.h"
 
 HardwareSerial PrinterSerial(2);
 
@@ -32,6 +33,7 @@ U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD);
 CommandQueue<16, 100> commandQueue;
 CommandQueue<3, 0> immediateQueue;
 
+FileChooser fileChooser;
 File root;
 File gcodeFile;
 uint32_t gcodeFileSize;
@@ -65,6 +67,7 @@ String distStr(const JogDist &a) {
 }
 
 int encVal = 0;
+bool buttonPressed[3];
 
 JogAxis cAxis;
 JogDist cDist;
@@ -74,7 +77,6 @@ void encISR();
 void bt1ISR();
 void bt2ISR();
 void bt3ISR();
-
 
 
 void setup() {
@@ -114,7 +116,11 @@ void setup() {
     }
     Serial.println("initialization done.");
 
-    root = SD.open("/");
+    fileChooser.begin();
+    fileChooser.setCallback( [&](bool res, String path){
+        if(res) { gcodeFile = SD.open(path); gcodeFilePrinting=true; }
+    } );
+
     gcodeFile = SD.open("/meat.nc");
     gcodeFileSize = gcodeFile.size();
 }
@@ -143,7 +149,7 @@ void parseGrblStatus(String v) {
 void scheduleGcode() {
     if(!gcodeFilePrinting) return;
 
-    if(commandQueue.getFreeSlots() > 3) { // } && commandQueue.getRemoteFreeSpace()>0) {
+    if(commandQueue.getFreeSlots() > 0) { // } && commandQueue.getRemoteFreeSpace()>0) {
         int rd;
         char cline[256];
         uint32_t len=0;
@@ -226,6 +232,7 @@ void receiveResponses() {
             if (resp.startsWith("error") ) {
                 if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
                 responseDetail = "error";
+                gcodeFilePrinting = false; // pause
             } else
             if ( resp.startsWith("<") ) {
                 parseGrblStatus(resp);
@@ -254,14 +261,34 @@ void processEnc() {
     //static uint32_t 
     if(encVal != lastEnc) {
         int8_t dx = (encVal - lastEnc);
-        bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+
+        fileChooser.buttonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
+        //bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
         //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
     }
     lastEnc = encVal;
 }
 
+void processButtons() {
+    static bool lastButtPressed[3];
+    for(int i=0; i<3; i++) {
+        if(lastButtPressed[i] != buttonPressed[i]) {
+            if(buttonPressed[i]) {
+                if(i==0) fileChooser.buttonPressed(Button::BT1);
+                if(i==1) fileChooser.buttonPressed(Button::BT2);
+                if(i==2) fileChooser.buttonPressed(Button::BT3);
+            }
+            lastButtPressed[i] = buttonPressed[i];
+        }
+    }
+}
+
 
 void draw() {
+
+    fileChooser.draw(u8g2);
+    return;
+
     char str[100];
 
     u8g2.clearBuffer();
@@ -283,14 +310,16 @@ void draw() {
 void loop() {
     processPot();
     processEnc();
+    processButtons();
 
     scheduleGcode();
 
+/*
     static uint32_t nextPosRequestTime;
     if(millis() > nextPosRequestTime) {
         immediateQueue.push("?");
         nextPosRequestTime = millis() + 1000;
-    }
+    }*/
 
     sendCommands();
 
@@ -341,26 +370,23 @@ IRAM_ATTR void encISR() {
 }
 
 
-IRAM_ATTR void btChanged(uint8_t pin) {
+IRAM_ATTR void btChanged(uint8_t pin, uint8_t button) {
   uint8_t val = digitalRead(pin);
-  if(val == LOW) { // pressed
-    DEBUGFI("Pressed pin %d\n", pin);
-    
-  }
+  buttonPressed[button] = val==LOW;
 }
 
 IRAM_ATTR void bt1ISR() {
   static long lastChangeTime = millis();
   if(millis() < lastChangeTime+10) return;
   lastChangeTime = millis();
-  btChanged(PIN_BT1);
+  btChanged(PIN_BT1, 0);
 }
 
 IRAM_ATTR void bt2ISR() {
   static long lastChangeTime = millis();
   if(millis() < lastChangeTime+10) return;
   lastChangeTime = millis();
-  btChanged(PIN_BT2);
+  btChanged(PIN_BT2, 1);
 }
 
 IRAM_ATTR void bt3ISR() {
@@ -371,7 +397,7 @@ IRAM_ATTR void bt3ISR() {
   bool val = digitalRead(PIN_BT3) == LOW;
   if(val) {
       gcodeFilePrinting = !gcodeFilePrinting;
-      DEBUGFI("bt3: filePrinting=%d\n", gcodeFilePrinting);
+//      DEBUGFI("bt3: filePrinting=%d\n", gcodeFilePrinting);
   }
   
 
