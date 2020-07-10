@@ -14,6 +14,7 @@ HardwareSerial PrinterSerial(2);
 #define DEBUGS(s)  { Serial.println(s); }
 
 #define PIN_POT1  33
+#define PIN_POT2  32
 
 #define PIN_BT1  14
 #define PIN_BT2  12
@@ -41,6 +42,12 @@ bool gcodeFilePrinting = false;
 float gcodeFilePercentage = 0;
 float droX, droY, droZ;
 
+enum class Mode {
+    DRO, FILECHOOSER
+};
+
+Mode cMode = Mode::DRO;
+
 enum class JogAxis {
     X,Y,Z
 };
@@ -54,13 +61,13 @@ String axisStr(const JogAxis &a) {
     return "";
 }
 enum class JogDist {
-    _001, _01, _1
+    _01, _1, _10
 };
 String distStr(const JogDist &a) {
     switch(a) {
-        case JogDist::_001: return "0.01";
         case JogDist::_01: return "0.1";
         case JogDist::_1: return "1";
+        case JogDist::_10: return "10";
     }
     DEBUGF("Unknown dist\n");
     return "";
@@ -118,11 +125,15 @@ void setup() {
 
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
-        if(res) { gcodeFile = SD.open(path); gcodeFilePrinting=true; }
-    } );
+        if(res) { 
+            gcodeFile = SD.open(path); 
+            gcodeFileSize = gcodeFile.size();
 
-    gcodeFile = SD.open("/meat.nc");
-    gcodeFileSize = gcodeFile.size();
+            gcodeFilePrinting = true; 
+            cMode = Mode::DRO;
+        }
+    } );
+    
 }
 
 void parseGrblStatus(String v) {
@@ -149,7 +160,7 @@ void parseGrblStatus(String v) {
 void scheduleGcode() {
     if(!gcodeFilePrinting) return;
 
-    if(commandQueue.getFreeSlots() > 0) { // } && commandQueue.getRemoteFreeSpace()>0) {
+    if(commandQueue.getFreeSlots() > 0) {
         int rd;
         char cline[256];
         uint32_t len=0;
@@ -253,30 +264,42 @@ void processPot() {
     if( cAxis==JogAxis::Y && v>3700+100) cAxis=JogAxis::Z;
     if( cAxis==JogAxis::Z && v<3700-100) cAxis=JogAxis::Y;
     if( cAxis==JogAxis::Y && v<3000-100) cAxis=JogAxis::X;
+
+    // centers:      950    1620     2420
+    // borders:         1300    2000
+
+    v = analogRead(PIN_POT2);
+    if( cDist==JogDist::_01 && v>1300+100) cDist=JogDist::_1;
+    if( cDist==JogDist::_1  && v>2000+100) cDist=JogDist::_10;
+    if( cDist==JogDist::_10 && v<2000-100) cDist=JogDist::_1;
+    if( cDist==JogDist::_1  && v<1300-100) cDist=JogDist::_01;
+
     
 }
 
 void processEnc() {
     static int lastEnc;
-    //static uint32_t 
     if(encVal != lastEnc) {
         int8_t dx = (encVal - lastEnc);
 
-        fileChooser.buttonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
-        //bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
-        //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
+        if(cMode==Mode::FILECHOOSER) {
+            fileChooser.buttonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
+        } else {
+            bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+            //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
+        }
     }
     lastEnc = encVal;
 }
 
 void processButtons() {
     static bool lastButtPressed[3];
+    static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
     for(int i=0; i<3; i++) {
         if(lastButtPressed[i] != buttonPressed[i]) {
             if(buttonPressed[i]) {
-                if(i==0) fileChooser.buttonPressed(Button::BT1);
-                if(i==1) fileChooser.buttonPressed(Button::BT2);
-                if(i==2) fileChooser.buttonPressed(Button::BT3);
+                if(cMode==Mode::FILECHOOSER) fileChooser.buttonPressed(buttons[i]);
+                else { if(i==2) gcodeFilePrinting = !gcodeFilePrinting; }
             }
             lastButtPressed[i] = buttonPressed[i];
         }
@@ -286,8 +309,10 @@ void processButtons() {
 
 void draw() {
 
-    fileChooser.draw(u8g2);
-    return;
+    if(cMode==Mode::FILECHOOSER) {
+        fileChooser.draw(u8g2);
+        return;
+    }
 
     char str[100];
 
@@ -297,7 +322,7 @@ void draw() {
     snprintf(str, 100, "Y: %.3f", droY );   u8g2.drawStr(10, 10, str ); 
     snprintf(str, 100, "Z: %.3f", droZ );   u8g2.drawStr(10, 20, str ); 
 
-    snprintf(str, 100, "%s %s", axisStr(cAxis).c_str(), distStr(cDist).c_str()  );
+    snprintf(str, 100, "%s x%s", axisStr(cAxis).c_str(), distStr(cDist).c_str()  );
     u8g2.drawStr(10, 30, str ); 
 
     u8g2.drawStr(0, 40, gcodeFilePrinting ? "P" : "");
@@ -314,12 +339,14 @@ void loop() {
 
     scheduleGcode();
 
-/*
+
     static uint32_t nextPosRequestTime;
-    if(millis() > nextPosRequestTime) {
-        immediateQueue.push("?");
-        nextPosRequestTime = millis() + 1000;
-    }*/
+    if(cMode==Mode::DRO) {
+        if(millis() > nextPosRequestTime) {
+            immediateQueue.push("?");
+            nextPosRequestTime = millis() + 1000;
+        }
+    }
 
     sendCommands();
 
@@ -370,8 +397,7 @@ IRAM_ATTR void encISR() {
 }
 
 
-IRAM_ATTR void btChanged(uint8_t pin, uint8_t button) {
-  uint8_t val = digitalRead(pin);
+IRAM_ATTR void btChanged(uint8_t button, uint8_t val) {
   buttonPressed[button] = val==LOW;
 }
 
@@ -379,26 +405,19 @@ IRAM_ATTR void bt1ISR() {
   static long lastChangeTime = millis();
   if(millis() < lastChangeTime+10) return;
   lastChangeTime = millis();
-  btChanged(PIN_BT1, 0);
+  btChanged(0, digitalRead(PIN_BT1) );
 }
 
 IRAM_ATTR void bt2ISR() {
   static long lastChangeTime = millis();
   if(millis() < lastChangeTime+10) return;
   lastChangeTime = millis();
-  btChanged(PIN_BT2, 1);
+  btChanged(1, digitalRead(PIN_BT2) );
 }
 
 IRAM_ATTR void bt3ISR() {
   static long lastChangeTime = millis();
-  
   if(millis() < lastChangeTime+10) return;
   lastChangeTime = millis();
-  bool val = digitalRead(PIN_BT3) == LOW;
-  if(val) {
-      gcodeFilePrinting = !gcodeFilePrinting;
-//      DEBUGFI("bt3: filePrinting=%d\n", gcodeFilePrinting);
-  }
-  
-
+  btChanged(2, digitalRead(PIN_BT3) );
 }
