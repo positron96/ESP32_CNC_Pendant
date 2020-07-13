@@ -67,15 +67,17 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
   Clicking apparatus added via 3D-printed knobs.
 * 128x64 LCD based on ST7920 chip with SPI interface. 
   It's the same as in 3D printers.
-  image::docs/lcd.png[display,300,200]
+  
+image::docs/lcd.png[display,300,200]
+
 * MicroSD slot (I used a shield for Wemos D1 Mini boards, but any will do)
 * Buttons (I have not decided on quantity yet)
 * 2 resistors or level shifter for 5V UART
 * Might be needed: level shifter for 5V LCD, diode+resistor for LCD SPI bugfix
 * wires, cable, connector for 3D printer and CNC boards 
 
-* Case
+* Case.
   Building of the case, with 3D files, is described here
   https://www.thingiverse.com/thing:4539827
 
-  image::docs/case-render.png[render of case,640,480]
+image::docs/case-render.png[render of case,640,480]
