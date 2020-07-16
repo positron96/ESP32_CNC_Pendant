@@ -26,12 +26,9 @@ public:
         cfg.close();
         WiFi.begin(essid.c_str(), pass.c_str() );
         */
-        Serial.println("begin start");
         delay(100);
 
         WiFi.begin("***REMOVED***", "***REMOVED***");
-
-        Serial.println("before status");
 
         while (WiFi.status() != WL_CONNECTED) {
             delay(500);
@@ -58,13 +55,9 @@ public:
         MDNS.addServiceTxt("http", "tcp", "api", API_VERSION);
         MDNS.addServiceTxt("http", "tcp", "version", SKETCH_VERSION);
 
-        Serial.println("before regstering");
-
         registerOptoPrintApi();
 
         registerWebBrowser();
-
-        Serial.println("before begin");
 
         server.begin();
 
@@ -292,29 +285,43 @@ private:
         */
     }
     
+    /** Retuns path in a form of /dir1/dir2 (leaading slash, no trailing slash). */
+    static String extractPath(String sdir) {
+        sdir = sdir.substring(4); // cut "/fs/"
+        if(sdir.length()>1 && sdir.endsWith("/") ) sdir=sdir.substring(0, sdir.length()-1); // remove trailing slash
+        if(sdir.charAt(0) != '/') sdir = '/'+sdir;
+        return sdir;
+    }
 
     void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
         static File file;
 
-        if (!index) { // first chunk
-            //lcd("Receiving...");
+        if (index==0) { // first chunk
+            Serial.printf("Uploading to file %s\n", filename.c_str() );
 
-            if (uploadedFullname != "")
-                SD.remove(uploadedFullname);     // Remove previous file
-            int pos = filename.lastIndexOf("/");
-            uploadedFullname = pos == -1 ? "/" + filename : filename.substring(pos);
+            String sdir = request->url();
+            if(sdir.startsWith("/fs")) {
+                sdir = extractPath(sdir);
+                if(!sdir.endsWith("/") ) sdir += '/';
+                uploadedFullname = sdir+filename;
+            } else {
+                int pos = filename.lastIndexOf("/");
+                uploadedFullname = pos == -1 ? "/" + filename : filename.substring(pos);
+            }
             if (uploadedFullname.length() > 255)//SD.getMaxPathLength())
                 uploadedFullname = "/cached.gco";   // TODO maybe a different solution
+            if(SD.exists(uploadedFullname)) SD.remove(uploadedFullname);
             file = SD.open(uploadedFullname, "w"); // create or truncate file
         }
 
+        //Serial.printf("uploading pos %d if size %d to %s\n", index, len, uploadedFullname.c_str() );
         file.write(data, len);
 
         if (final) { // last chunk
+            Serial.printf("uploaded\n");
             file.close();
             //uploadedFileSize = index + len;
-        }// else
-         //   uploadedFileSize = 0;
+        }
     }
 
     void registerWebBrowser() {
@@ -327,19 +334,17 @@ private:
             request->redirect("/fs/");
         });
         server.serveStatic("/fs/", SD, "/").setDefaultFile(""); // disable index.htm searching
-        
-        server.on("/fs", [](AsyncWebServerRequest * request) {
-            String sdir = request->url().substring(4);
-            if(sdir.endsWith("/") && sdir.length()>1 ) sdir=sdir.substring(0, sdir.length()-1); // remove trailing slash
-            if(sdir.charAt(0) != '/') sdir = '/'+sdir;
+
+        server.on("/fs", HTTP_GET, [](AsyncWebServerRequest * request) {
+            String sdir = extractPath(request->url() );            
             
-            Serial.println("got dir "+sdir);
+            Serial.println("listing dir "+sdir);
             File dir = SD.open(sdir);
 
             if(!dir || !dir.isDirectory()) { dir.close(); request->send(404, "text/plain", "No such file"); return; }
 
             String resp; resp.reserve(2048);
-            resp += "<html><body>\n<h1>Listing of \""+sdir+"\"</h1>\n<ul>\n";
+            resp += "<html><body>\n<h1>Listing of \""+sdir+"\"</h1>\n<form method='post' enctype='multipart/form-data'><input type='file' name='f'><input type='submit'></form>\n<ul>\n";
 
             if(sdir.length()>1) {
                 int p=sdir.lastIndexOf('/'); 
@@ -360,6 +365,11 @@ private:
             request->send(200, "text/html", resp);
         });
         
+        server.on("/fs", HTTP_POST, [](AsyncWebServerRequest * request) {
+            request->send(201, "text/html", "created");
+        }, [this](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+            handleUpload(req, filename, index, data, len, final);
+        } );
     }
 
 };
