@@ -41,7 +41,7 @@ public:
         Serial.println(WiFi.localIP());
 
         MDNS.begin("cncpendant");
-        MDNS.setInstanceName("cncpendant");
+        //MDNS.setInstanceName("cncpendantinstance");
 
         // OctoPrint API
         // Unfortunately, Slic3r doesn't seem to recognize it
@@ -55,6 +55,8 @@ public:
         MDNS.addServiceTxt("http", "tcp", "api", API_VERSION);
         MDNS.addServiceTxt("http", "tcp", "version", SKETCH_VERSION);
 
+        //localUrlBase = "http://"+
+
         registerOptoPrintApi();
 
         registerWebBrowser();
@@ -67,17 +69,21 @@ private:
     AsyncWebServer server;
     uint16_t port;
 
-    String uploadedFullname;
+    String uploadedFilePath;
+    size_t uploadedFileSize;
+    //String localUrlBase;
     
     void registerOptoPrintApi() {
-        /*
+        
         server.on("/api/login", HTTP_POST, [](AsyncWebServerRequest * request) {
             // https://docs.octoprint.org/en/master/api/general.html#post--api-login
             // https://github.com/fieldOfView/Cura-OctoPrintPlugin/issues/155#issuecomment-596109663
+            Serial.printf("/api/login");
             request->send(200, "application/json", "{}");  
         });
 
         server.on("/api/version", HTTP_GET, [](AsyncWebServerRequest * request) {
+            Serial.printf("/api/version");
             // http://docs.octoprint.org/en/master/api/version.html
             request->send(200, "application/json", "{\r\n"
                     "  \"api\": \"" API_VERSION "\",\r\n"
@@ -86,20 +92,22 @@ private:
         });
 
         server.on("/api/connection", HTTP_GET, [](AsyncWebServerRequest * request) {
+            Serial.printf("/api/connection");
             // http://docs.octoprint.org/en/master/api/connection.html#get-connection-settings
             request->send(200, "application/json", "{\r\n"
                     "  \"current\": {\r\n"
-                    "    \"state\": \"" + getState() + "\",\r\n"
+                    //"    \"state\": \"" + getState() + "\",\r\n"
+                    "    \"state\": \"Operational\",\r\n"
                     "    \"port\": \"Serial\",\r\n"
-                    "    \"baudrate\": " + serialBauds[serialBaudIndex] + ",\r\n"
+                    "    \"baudrate\": 115200,\r\n"
                     "    \"printerProfile\": \"Default\"\r\n"
                     "  },\r\n"
                     "  \"options\": {\r\n"
                     "    \"ports\": \"Serial\",\r\n"
-                    "    \"baudrate\": " + serialBauds[serialBaudIndex] + ",\r\n"
+                    "    \"baudrates\": [115200, 250000],\r\n"
                     "    \"printerProfiles\": \"Default\",\r\n"
                     "    \"portPreference\": \"Serial\",\r\n"
-                    "    \"baudratePreference\": " + serialBauds[serialBaudIndex] + ",\r\n"
+                    "    \"baudratePreference\": 115200,\r\n"
                     "    \"printerProfilePreference\": \"Default\",\r\n"
                     "    \"autoconnect\": true\r\n"
                     "  }\r\n"
@@ -110,14 +118,46 @@ private:
         // File Operations
         // Pending: http://docs.octoprint.org/en/master/api/files.html#retrieve-all-files
         server.on("/api/files", HTTP_GET, [](AsyncWebServerRequest * request) {
+            Serial.printf("/api/files");
             request->send(200, "application/json", "{\r\n"
-                    "  \"files\": {\r\n"
-                    "  }\r\n"
+                    "  \"files\": ["
+                    "    { \"name\": \"whistle_.gco\", \"path\":\"whistle_.gco\" }\r\n"
+                    "  ]\r\n"
                     "}");
         });
 
+        server.on("/api/files/local", HTTP_POST, [this](AsyncWebServerRequest * request) {
+            Serial.printf("POST %s\n", request->url().c_str() );
 
-        // For Slic3r OctoPrint compatibility
+            if(request->hasParam("select") ) { } // make file active
+            if(request->hasParam("print")) { } // print now
+
+
+            // OctoPrint sends 201 here; https://github.com/fieldOfView/Cura-OctoPrintPlugin/issues/155#issuecomment-596110996
+            AsyncWebServerResponse *response = request->beginResponse(201, "application/json", "{\r\n"
+                    "  \"files\": {\r\n"
+                    "    \"local\": {\r\n"
+                    "      \"name\": \"" + uploadedFilePath + "\",\r\n"
+                    "      \"origin\": \"local\"\r\n"
+                    "    }\r\n"
+                    "  },\r\n"
+                    "  \"done\": true\r\n"
+                    "}");
+            response->addHeader("Location", "http://"+request->host()+"/api/files/local"+uploadedFilePath);
+            request->send(response);
+
+        }, [this](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+            //Serial.printf("FILE %s file %s\n", req->url().c_str(), filename.c_str() );
+            if(index==0) {
+                int pos = filename.lastIndexOf("/");
+                filename = pos == -1 ? "/" + filename : filename.substring(pos);
+
+            }
+            handleUpload(req, filename, index, data, len, final);
+        } );
+
+/*
+       // For Slic3r OctoPrint compatibility 
         server.on("/api/files/local", HTTP_POST, [](AsyncWebServerRequest * request) {
             // https://docs.octoprint.org/en/master/api/files.html?highlight=api%2Ffiles%2Flocal#upload-file-or-create-folder
             lcd("Received");
@@ -140,22 +180,24 @@ private:
                     "  \"done\": true\r\n"
                     "}");
         }, handleUpload);
+*/
 
-
-        server.on("/api/job", HTTP_GET, [](AsyncWebServerRequest * request) {
+        server.on("/api/job", HTTP_GET, [this](AsyncWebServerRequest * request) {
             // http://docs.octoprint.org/en/master/api/job.html#retrieve-information-about-the-current-job
+            Serial.println("GET /api/job");
             int32_t printTime = 0, printTimeLeft = 0;
-            if (isPrinting) {
+            /*if (isPrinting) {
                 printTime = (millis() - printStartTime) / 1000;
                 printTimeLeft = (printCompletion > 0) ? printTime / printCompletion * (100 - printCompletion) : INT32_MAX;
-            }
+            }*/
             request->send(200, "application/json", "{\r\n"
                     "  \"job\": {\r\n"
                     "    \"file\": {\r\n"
-                    "      \"name\": \"" + getUploadedFilename() + "\",\r\n"
+                    "      \"name\": \"" + uploadedFilePath + "\",\r\n"
                     "      \"origin\": \"local\",\r\n"
                     "      \"size\": " + String(uploadedFileSize) + ",\r\n"
-                    "      \"date\": " + String(uploadedFileDate) + "\r\n"
+                    "      \"date\": \"2020-06-02-10:11:12\"\r\n"
+                    //"      \"date\": " + String(uploadedFileDate) + "\r\n"
                     "    },\r\n"
                     //"    \"estimatedPrintTime\": \"" + estimatedPrintTime + "\",\r\n"
                     "    \"filament\": {\r\n"
@@ -164,16 +206,150 @@ private:
                     "    }\r\n"
                     "  },\r\n"
                     "  \"progress\": {\r\n"
-                    "    \"completion\": " + String(printCompletion) + ",\r\n"
-                    "    \"filepos\": " + String(filePos) + ",\r\n"
+                    //"    \"completion\": " + String(printCompletion) + ",\r\n"
+                    //"    \"filepos\": " + String(filePos) + ",\r\n"
+                    "    \"completion\": 10,\r\n"
+                    "    \"filepos\": 100,\r\n"
                     "    \"printTime\": " + String(printTime) + ",\r\n"
                     "    \"printTimeLeft\": " + String(printTimeLeft) + "\r\n"
                     "  },\r\n"
-                    "  \"state\": \"" + getState() + "\"\r\n"
+                    //"  \"state\": \"" + getState() + "\"\r\n"
+                    "  \"state\": \"Operational\"\r\n"
                     "}");
         });
 
         server.on("/api/job", HTTP_POST, [](AsyncWebServerRequest *request) {
+                // Job commands http://docs.octoprint.org/en/master/api/job.html#issue-a-job-command
+                request->send(200, "text/plain", "");
+            },
+            [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
+                request->send(400, "text/plain", "file not supported");
+            },
+            [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+                static String content;
+
+                if (index==0)
+                    content = "";
+                for (int i = 0; i < len; ++i)
+                    content += (char)data[i];
+                if (index+len == total) {
+                    Serial.println("POST /api/job");
+                    Serial.println(content);
+                    /*DynamicJsonDocument doc(1024);
+                    auto error = deserializeJson(doc, content);
+                    if (error)
+                    request->send(400, "text/plain", error.c_str());
+                    else {
+                    int responseCode = apiJobHandler(doc.as<JsonObject>());
+                    request->send(responseCode, "text/plain", "");
+                    }*/
+                    request->send(200, "text/plain", "");
+                    content = "";
+                }
+            }
+        );
+
+        // this handles API key check from Cura
+        server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest * request) {
+            // https://github.com/probonopd/WirelessPrinting/issues/30
+            // https://github.com/probonopd/WirelessPrinting/issues/18#issuecomment-321927016
+            request->send(200, "application/json", "{}");
+        });
+
+
+        server.on("/api/printer", HTTP_GET, [this](AsyncWebServerRequest * request) {
+            Serial.print("GET "); Serial.println(request->url() );
+            // https://docs.octoprint.org/en/master/api/printer.html#retrieve-the-current-printer-state
+            //String readyState = stringify(printerConnected);
+            String message = "{\r\n"
+                    "  \"state\": {\r\n"
+                    //"    \"text\": \"" + getState() + "\",\r\n"
+                    "    \"text\": \"Operational\",\r\n"
+                    "    \"flags\": {\r\n"
+                    //"      \"operational\": " + readyState + ",\r\n"
+                    "      \"operational\": true,\r\n"
+                    //"      \"paused\": " + stringify(printPause) + ",\r\n"
+                    "      \"paused\": false,\r\n"
+                    //"      \"printing\": " + stringify(isPrinting) + ",\r\n"
+                    "      \"printing\": false,\r\n"
+                    "      \"pausing\": false,\r\n"
+                    //"      \"cancelling\": " + stringify(cancelPrint) + ",\r\n"
+                    "      \"sdReady\": false,\r\n"
+                    "      \"error\": false,\r\n"
+                    //"      \"ready\": " + readyState + ",\r\n"
+                    "      \"ready\": true,\r\n"
+                    //"      \"closedOrError\": " + stringify(!printerConnected) + "\r\n"
+                    "      \"closedOrError\": false\r\n"
+                    "    }\r\n"
+                    "  },\r\n"
+                    "  \"temperature\": {\r\n";
+            int fwExtruders = 1;
+            for (int t = 0; t < fwExtruders; ++t) {
+                message += "    \"tool" + String(t) + "\": {\r\n"
+                        //"      \"actual\": " + toolTemperature[t].actual + ",\r\n"
+                        //"      \"target\": " + toolTemperature[t].target + ",\r\n"
+                        "      \"actual\": 25,\r\n"
+                        "      \"target\": 50,\r\n"
+                        "      \"offset\": 0\r\n"
+                        "    },\r\n";
+            }
+            message += "    \"bed\": {\r\n"
+                    //"      \"actual\": " + bedTemperature.actual + ",\r\n"
+                    //"      \"target\": " + bedTemperature.target + ",\r\n"
+                    "      \"actual\": 25,\r\n"
+                    "      \"target\": 30,\r\n"
+                    "      \"offset\": 0\r\n"
+                    "    }\r\n"
+                    "  },\r\n"
+                    "  \"sd\": {\r\n"
+                    "    \"ready\": false\r\n"
+                    "  }\r\n"
+                    "}";
+            request->send(200, "application/json", message);
+        });
+
+        // http://docs.octoprint.org/en/master/api/printer.html#send-an-arbitrary-command-to-the-printer
+        server.on("/api/printer/command", HTTP_POST, [](AsyncWebServerRequest *request) {
+                request->send(200, "text/plain", "");
+            },
+            [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
+                request->send(400, "text/plain", "file not supported");
+            },
+            [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+                static String content;
+                
+                if (!index)
+                    content = "";
+                for (size_t i = 0; i < len; ++i)
+                    content += (char)data[i];
+                if ( index+len == total) {
+                    /*DynamicJsonDocument doc(1024);
+                    auto error = deserializeJson(doc, content);
+                    if (error)
+                        request->send(400, "text/plain", error.c_str());
+                    else {
+                        JsonObject root = doc.as<JsonObject>();
+                        const char* command = root["command"];
+                        if (command != NULL)
+                            commandQueue.push(command);
+                        else {
+                            JsonArray commands = root["commands"].as<JsonArray>();
+                            for (JsonVariant command : commands)
+                                commandQueue.push(String(command.as<String>()));
+                        }
+                        request->send(204, "text/plain", "");
+                    }*/
+                    Serial.println("POST /api/printer/command");
+                    Serial.println(content);
+                    request->send(204, "text/plain", "");
+                    content = "";
+                }
+                
+            }
+        );
+
+
+/*        server.on("/api/job", HTTP_POST, [](AsyncWebServerRequest *request) {
                 // Job commands http://docs.octoprint.org/en/master/api/job.html#issue-a-job-command
                 request->send(200, "text/plain", "");
             },
@@ -298,20 +474,12 @@ private:
 
         if (index==0) { // first chunk
             Serial.printf("Uploading to file %s\n", filename.c_str() );
+            uploadedFilePath = filename;
 
-            String sdir = request->url();
-            if(sdir.startsWith("/fs")) {
-                sdir = extractPath(sdir);
-                if(!sdir.endsWith("/") ) sdir += '/';
-                uploadedFullname = sdir+filename;
-            } else {
-                int pos = filename.lastIndexOf("/");
-                uploadedFullname = pos == -1 ? "/" + filename : filename.substring(pos);
-            }
-            if (uploadedFullname.length() > 255)//SD.getMaxPathLength())
-                uploadedFullname = "/cached.gco";   // TODO maybe a different solution
-            if(SD.exists(uploadedFullname)) SD.remove(uploadedFullname);
-            file = SD.open(uploadedFullname, "w"); // create or truncate file
+            if (uploadedFilePath.length() > 255)//storageFS.getMaxPathLength())
+                uploadedFilePath = "/cached.gco";   // TODO maybe a different solution
+            if(SD.exists(uploadedFilePath)) SD.remove(uploadedFilePath);
+            file = SD.open(uploadedFilePath, "w"); // create or truncate file
         }
 
         //Serial.printf("uploading pos %d if size %d to %s\n", index, len, uploadedFullname.c_str() );
@@ -319,18 +487,20 @@ private:
 
         if (final) { // last chunk
             Serial.printf("uploaded\n");
+            uploadedFileSize = index + len;
             file.close();
-            //uploadedFileSize = index + len;
         }
     }
 
     void registerWebBrowser() {
           server.onNotFound([](AsyncWebServerRequest * request) {
             //telnetSend("404 | Page '" + request->url() + "' not found");
+            Serial.printf("Sending 404 to %s\n", request->url().c_str() );
             request->send(404, "text/plain", "Page not found!");
         });
 
         server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
+            Serial.printf("Requested /, redirecting to /fs\n" );
             request->redirect("/fs/");
         });
         server.serveStatic("/fs/", SD, "/").setDefaultFile(""); // disable index.htm searching
@@ -368,6 +538,12 @@ private:
         server.on("/fs", HTTP_POST, [](AsyncWebServerRequest * request) {
             request->send(201, "text/html", "created");
         }, [this](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+            if(index==0) {
+                String sdir = req->url();
+                sdir = extractPath(sdir);
+                if(!sdir.endsWith("/") ) sdir += '/';
+                filename = sdir + filename;
+            }
             handleUpload(req, filename, index, data, len, final);
         } );
     }
