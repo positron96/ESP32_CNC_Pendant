@@ -4,9 +4,10 @@
 #include <SD.h>
 #include <U8g2lib.h>
 
-#include "CommandQueue.h"
+#include "devices/GCodeDevice.h"
+#include "Job.h"
 #include "FileChooser.h"
-#include "WiFiServer.h"
+#include "InetServer.h"
 
 HardwareSerial PrinterSerial(2);
 
@@ -28,21 +29,17 @@ HardwareSerial PrinterSerial(2);
 #define PIN_CE_LCD  4
 #define PIN_RST_LCD 22
 
-#define KEEPALIVE_INTERVAL 2500         // Marlin defaults to 2 seconds, get a little of margin
 
 U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD); 
 
-CommandQueue<16, 100> commandQueue;
-CommandQueue<3, 0> immediateQueue;
 
 WebServer server;
 
 FileChooser fileChooser;
-File gcodeFile;
-uint32_t gcodeFileSize;
-bool gcodeFilePrinting = false;
-float gcodeFilePercentage = 0;
-float droX, droY, droZ;
+
+GrblDevice dev(PrinterSerial);
+
+Job job;
 
 enum class Mode {
     DRO, FILECHOOSER
@@ -125,141 +122,25 @@ void setup() {
     }
     Serial.println("initialization done.");
 
-    /*
+    GCodeDevice::setDevice(&dev);
+    Job::setJob(&job);
+    dev.add_observer(job);
+
+    
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
-            gcodeFile = SD.open(path); 
-            gcodeFileSize = gcodeFile.size();
-
-            gcodeFilePrinting = true; 
+            job.setFile(path);            
+            job.resume();
+            
             cMode = Mode::DRO;
         }
     } );
-    */
 
     server.begin();
     
 }
 
-void parseGrblStatus(String v) {
-    //<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
-    DEBUGF("parsing %s\n", v.c_str() );
-    int pos;
-    pos = v.indexOf('|');
-    if(pos==-1) return;
-    String stat = v.substring(1,pos);
-    v = v.substring(pos+1);
-    if(v.startsWith("MPos:")) {
-        int p2 = v.indexOf(',');
-        droX = v.substring(5, p2).toFloat();
-        v = v.substring(p2+1);
-        p2 = v.indexOf(',');
-        droY = v.substring(0, p2).toFloat();
-        v = v.substring(p2+1);
-        p2 = v.indexOf('|');
-        droZ = v.substring(0, p2).toFloat();
-    }
-
-}
-
-void scheduleGcode() {
-    if(!gcodeFilePrinting) return;
-
-    if(commandQueue.getFreeSlots() > 0) {
-        int rd;
-        char cline[256];
-        uint32_t len=0;
-        while( gcodeFile.available() ) {
-            rd = gcodeFile.read();
-            if(rd=='\n' || rd=='\r') break;
-            cline[len++] = rd;
-        }        
-        if(gcodeFile.available()==0) gcodeFilePrinting = false;
-        gcodeFilePercentage = 1.0 - gcodeFile.available()*1.0/gcodeFileSize;
-
-        cline[len]=0;
-
-        if(len==0) return;
-
-        String line(cline);
-        DEBUGF("popped line '%s', len %d\n", line.c_str(), len );
-
-        int pos = line.indexOf(';');
-        if(pos!=-1) line = line.substring(0, pos);
-
-        if(line.length()==0) return;
-
-        commandQueue.push(line);
-
-    }
-
-}
-
-uint32_t serialReceiveTimeoutTimer;
-
-inline void restartSerialTimeout() {
-  serialReceiveTimeoutTimer = millis() + KEEPALIVE_INTERVAL;
-}
-
-void sendCommands() {
-    String command;
-    if(immediateQueue.hasUnsent() ) {
-        command = immediateQueue.markSent();
-        PrinterSerial.print(command);
-        PrinterSerial.print("\n");
-        restartSerialTimeout();
-        DEBUGF("Sent '%s', immediate\n", command.c_str());
-        return;
-    }
-    command = commandQueue.peekSend();
-    if (command != "") {
-        String s = commandQueue.markSent();
-        if(s=="") {
-            DEBUGF("Not sent, free space: %d\n", commandQueue.getRemoteFreeSpace());
-        } else {
-            DEBUGF("Sent '%s', free spacee %d\n", command.c_str(), commandQueue.getRemoteFreeSpace());
-            PrinterSerial.print(command);  
-            PrinterSerial.print("\n");
-            restartSerialTimeout();
-        }
-    }
-}
-
-String lastReceivedResponse;
-
-void receiveResponses() {
-    static int lineStartPos = 0;
-    static String resp;
-
-    while (PrinterSerial.available()) {
-        char ch = (char)PrinterSerial.read();
-        if (ch != '\n')
-            resp += ch;
-        else {
-            bool incompleteResponse = false;
-            String responseDetail = "";
-
-            //DEBUGF("Got response %s\n", serialResponse.c_str() );
-
-            if (resp.startsWith("ok", lineStartPos)) {
-                if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
-                responseDetail = "ok";
-            } else 
-            if (resp.startsWith("error") ) {
-                if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
-                responseDetail = "error";
-                gcodeFilePrinting = false; // pause
-            } else
-            if ( resp.startsWith("<") ) {
-                parseGrblStatus(resp);
-            }
-            DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
-            resp = "";
-        }
-    }
-
-}
 
 void processPot() {
     //  center lines : 2660    3480    4095
@@ -291,7 +172,7 @@ void processEnc() {
         if(cMode==Mode::FILECHOOSER) {
             fileChooser.buttonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
         } else {
-            bool r = commandQueue.push("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+            bool r = dev.schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
             //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
         }
     }
@@ -305,7 +186,7 @@ void processButtons() {
         if(lastButtPressed[i] != buttonPressed[i]) {
             if(buttonPressed[i]) {
                 if(cMode==Mode::FILECHOOSER) fileChooser.buttonPressed(buttons[i]);
-                else { if(i==2) gcodeFilePrinting = !gcodeFilePrinting; }
+                else { if(i==2) job.setPaused(!job.isPaused()); }
             }
             lastButtPressed[i] = buttonPressed[i];
         }
@@ -324,67 +205,44 @@ void draw() {
 
     u8g2.clearBuffer();
     
-    snprintf(str, 100, "X: %.3f", droX );   u8g2.drawStr(10, 0, str ); 
-    snprintf(str, 100, "Y: %.3f", droY );   u8g2.drawStr(10, 10, str ); 
-    snprintf(str, 100, "Z: %.3f", droZ );   u8g2.drawStr(10, 20, str ); 
+    snprintf(str, 100, "X: %.3f", dev.getX() );   u8g2.drawStr(10, 0, str ); 
+    snprintf(str, 100, "Y: %.3f", dev.getX() );   u8g2.drawStr(10, 10, str ); 
+    snprintf(str, 100, "Z: %.3f", dev.getX() );   u8g2.drawStr(10, 20, str ); 
 
     snprintf(str, 100, "%s x%s", axisStr(cAxis).c_str(), distStr(cDist).c_str()  );
     u8g2.drawStr(10, 30, str ); 
 
-    u8g2.drawStr(0, 40, gcodeFilePrinting ? "P" : "");
+    u8g2.drawStr(0, 40, job.isPaused() ? "P" : "");
     
-    snprintf(str, 100, "%d%%", int(gcodeFilePercentage*100) );
+    snprintf(str, 100, "%d%%", int(job.getPercentage()*100) );
     u8g2.drawStr(10, 40, str);
     u8g2.sendBuffer();
 }
 
 void loop() {
-   /* processPot();
+    processPot();
     processEnc();
     processButtons();
 
-    scheduleGcode();
+    job.loop();
 
-
-    static uint32_t nextPosRequestTime;
+    /*static uint32_t nextPosRequestTime;
     if(cMode==Mode::DRO) {
         if(millis() > nextPosRequestTime) {
-            immediateQueue.push("?");
+            dev.schedulePriorityCommand("?");
             nextPosRequestTime = millis() + 1000;
         }
-    }
+    }*/
 
-    sendCommands();
+    dev.sendCommands();
+    dev.receiveResponses();
 
-    receiveResponses();
-
-    draw();*/
+    draw();
 
     if(Serial.available()) {
         PrinterSerial.write( Serial.read() );
     }
 
-    
-
-    /*File entry = root.openNextFile();
-    if(!entry) {
-        root.rewindDirectory();
-        entry = root.openNextFile();
-    }
-    if(entry) { Serial.println( entry.name() ); }
-    else Serial.println("Failed dir");
-
-    delay(1000);
-
-    static int i=0;
-
-    u8g2.clearBuffer();
-    char str[100];
-    snprintf(str, 100, "%d", i++);
-    u8g2.drawStr(10, 10, str); 
-    u8g2.sendBuffer();
-
-    delay(1000);*/
 }
 
 
