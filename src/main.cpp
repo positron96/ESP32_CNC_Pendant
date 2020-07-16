@@ -6,6 +6,7 @@
 
 #include "CommandQueue.h"
 #include "FileChooser.h"
+#include "WiFiServer.h"
 
 HardwareSerial PrinterSerial(2);
 
@@ -34,8 +35,9 @@ U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD);
 CommandQueue<16, 100> commandQueue;
 CommandQueue<3, 0> immediateQueue;
 
+WebServer server;
+
 FileChooser fileChooser;
-File root;
 File gcodeFile;
 uint32_t gcodeFileSize;
 bool gcodeFilePrinting = false;
@@ -123,6 +125,7 @@ void setup() {
     }
     Serial.println("initialization done.");
 
+    /*
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -133,6 +136,9 @@ void setup() {
             cMode = Mode::DRO;
         }
     } );
+    */
+
+    server.begin();
     
 }
 
@@ -333,7 +339,7 @@ void draw() {
 }
 
 void loop() {
-    processPot();
+   /* processPot();
     processEnc();
     processButtons();
 
@@ -352,7 +358,7 @@ void loop() {
 
     receiveResponses();
 
-    draw();
+    draw();*/
 
     if(Serial.available()) {
         PrinterSerial.write( Serial.read() );
