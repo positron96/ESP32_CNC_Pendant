@@ -37,9 +37,10 @@ WebServer server;
 
 FileChooser fileChooser;
 
-GrblDevice dev(PrinterSerial);
+GrblDevice grbl(PrinterSerial);
+GCodeDevice *dev = &grbl;
 
-Job job;
+Job *job;
 
 enum class Mode {
     DRO, FILECHOOSER
@@ -50,26 +51,26 @@ Mode cMode = Mode::DRO;
 enum class JogAxis {
     X,Y,Z
 };
-String axisStr(const JogAxis &a) {
+char axisChar(const JogAxis &a) {
     switch(a) {
-        case JogAxis::X : return "X";
-        case JogAxis::Y : return "Y";
-        case JogAxis::Z : return "Z";
+        case JogAxis::X : return 'X';
+        case JogAxis::Y : return 'Y';
+        case JogAxis::Z : return 'Z';
     }
     DEBUGF("Unknown axis\n");
-    return "";
+    return 0;
 }
 enum class JogDist {
     _01, _1, _10
 };
-String distStr(const JogDist &a) {
+float distVal(const JogDist &a) {
     switch(a) {
-        case JogDist::_01: return "0.1";
-        case JogDist::_1: return "1";
-        case JogDist::_10: return "10";
+        case JogDist::_01: return 0.1;
+        case JogDist::_1: return 1;
+        case JogDist::_10: return 10;
     }
     DEBUGF("Unknown dist\n");
-    return "";
+    return 1;
 }
 
 int encVal = 0;
@@ -122,16 +123,16 @@ void setup() {
     }
     Serial.println("initialization done.");
 
-    GCodeDevice::setDevice(&dev);
-    Job::setJob(&job);
-    dev.add_observer(job);
+    GCodeDevice::setDevice(dev);
+    job = Job::getJob();
+    dev->add_observer( *job );
 
     
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
-            job.setFile(path);            
-            job.resume();
+            job->setFile(path);            
+            job->resume();
             
             cMode = Mode::DRO;
         }
@@ -160,7 +161,6 @@ void processPot() {
     if( cDist==JogDist::_1  && v>2000+100) cDist=JogDist::_10;
     if( cDist==JogDist::_10 && v<2000-100) cDist=JogDist::_1;
     if( cDist==JogDist::_1  && v<1300-100) cDist=JogDist::_01;
-
     
 }
 
@@ -172,8 +172,9 @@ void processEnc() {
         if(cMode==Mode::FILECHOOSER) {
             fileChooser.buttonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
         } else {
-            bool r = dev.schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
-            //DEBUGF("Encoder val is %d, push ret=%d\n", encVal, r);
+            bool r = dev->jog( (int)cAxis, distVal(cDist) );
+            //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+            if(!r) DEBUGF("Could not schedule jog\n");
         }
     }
     lastEnc = encVal;
@@ -186,7 +187,7 @@ void processButtons() {
         if(lastButtPressed[i] != buttonPressed[i]) {
             if(buttonPressed[i]) {
                 if(cMode==Mode::FILECHOOSER) fileChooser.buttonPressed(buttons[i]);
-                else { if(i==2) job.setPaused(!job.isPaused()); }
+                else { if(i==2) job->setPaused(!job->isPaused()); }
             }
             lastButtPressed[i] = buttonPressed[i];
         }
@@ -205,16 +206,16 @@ void draw() {
 
     u8g2.clearBuffer();
     
-    snprintf(str, 100, "X: %.3f", dev.getX() );   u8g2.drawStr(10, 0, str ); 
-    snprintf(str, 100, "Y: %.3f", dev.getX() );   u8g2.drawStr(10, 10, str ); 
-    snprintf(str, 100, "Z: %.3f", dev.getX() );   u8g2.drawStr(10, 20, str ); 
+    snprintf(str, 100, "X: %.3f", dev->getX() );   u8g2.drawStr(10, 0, str ); 
+    snprintf(str, 100, "Y: %.3f", dev->getX() );   u8g2.drawStr(10, 10, str ); 
+    snprintf(str, 100, "Z: %.3f", dev->getX() );   u8g2.drawStr(10, 20, str ); 
 
-    snprintf(str, 100, "%s x%s", axisStr(cAxis).c_str(), distStr(cDist).c_str()  );
+    snprintf(str, 100, "%c x%3f", axisChar(cAxis), distVal(cDist)  );
     u8g2.drawStr(10, 30, str ); 
 
-    u8g2.drawStr(0, 40, job.isPaused() ? "P" : "");
+    u8g2.drawStr(0, 40, job->isPaused() ? "P" : "");
     
-    snprintf(str, 100, "%d%%", int(job.getPercentage()*100) );
+    snprintf(str, 100, "%d%%", int(job->getPercentage()*100) );
     u8g2.drawStr(10, 40, str);
     u8g2.sendBuffer();
 }
@@ -224,7 +225,7 @@ void loop() {
     processEnc();
     processButtons();
 
-    job.loop();
+    job->loop();
 
     /*static uint32_t nextPosRequestTime;
     if(cMode==Mode::DRO) {
@@ -234,8 +235,7 @@ void loop() {
         }
     }*/
 
-    dev.sendCommands();
-    dev.receiveResponses();
+    dev->loop();
 
     draw();
 

@@ -1,11 +1,13 @@
 #include "Job.h"
 
-Job * Job::job;
+Job Job::job;
 
-void Job::setJob(Job* _job) { job = _job; }
+void Job::setJob(Job* _job) { job = *_job; }
 
-Job * Job::getJob() { return job; }
+Job * Job::getJob() { return &job; }
 
+#define J_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
+#define J_DEBUGS(s)  { Serial.println(s); }
 
 
 void Job::loop() {
@@ -30,7 +32,7 @@ void Job::loop() {
         if(len==0) return;
 
         String line(cline);
-        DEBUGF("popped line '%s', len %d\n", line.c_str(), len );
+        J_DEBUGF("popped line '%s', len %d\n", line.c_str(), len );
 
         int pos = line.indexOf(';');
         if(pos!=-1) line = line.substring(0, pos);

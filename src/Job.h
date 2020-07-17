@@ -56,6 +56,6 @@ private:
     bool paused;
 
 
-    static Job *job;
+    static Job job;
 
 };

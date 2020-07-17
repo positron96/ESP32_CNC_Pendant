@@ -54,7 +54,7 @@ public:
       return (tailSend == head) ? String() : buf[tailSend];
     }
 
-    // Returns the next command to be sent, and advances to the next
+    // Returns marked command, and advances to the next
     String markSent() {
         if (tailSend == head)
             return String();

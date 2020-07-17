@@ -65,7 +65,8 @@ public:
                 }
                 break;
             }
-                
+            default: 
+                break;
         }
         FC_DEBUGFI("leaving bt, selLine is %d\n", selLine);
         repaintNeeded = true;

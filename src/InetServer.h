@@ -30,6 +30,6 @@ private:
 
     void registerWebBrowser() ;
 
-    int apiJobHandler(JsonObject root);
+    int apiJobHandler(JsonObject &root);
 
 };

@@ -3,6 +3,7 @@
 #include <ESPmDNS.h>
 #include <SD.h>
 #include <WiFi.h>
+#include <AsyncJson.h>
 
 #include "Job.h"
 
@@ -110,6 +111,9 @@ void WebServer::registerOptoPrintApi() {
                 "}");
     });
 
+    const int filesPrefixLen = strlen("/api/files/local");
+
+    // only handle fle uploads
     server.on("/api/files/local", HTTP_POST, [this](AsyncWebServerRequest * request) {
         Serial.printf("POST %s\n", request->url().c_str() );
 
@@ -145,34 +149,26 @@ void WebServer::registerOptoPrintApi() {
             filename = pos == -1 ? "/" + filename : filename.substring(pos);
         }
         handleUpload(req, filename, index, data, len, final);
-    }, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) { // this can also be a json body
+    } ).setFilter([filesPrefixLen](AsyncWebServerRequest *req){ return req->url().length()==filesPrefixLen; } );
 
-        Serial.printf("POST body %s\n", request->url().c_str() );
-        if( request->hasHeader("Content-Type") ) Serial.println(request->getHeader("Content-Type")->value() );
-/*
-        static String content;
-
-        if (index==0)
-            content = "";
-        for (int i = 0; i < len; ++i)
-            content += (char)data[i];
-        if (index+len == total) {
-            Serial.printf("POST body %s\n", request->url().c_str() );
-            if( request->hasHeader("Content-Type") ) Serial.println(request->getHeader("Content-Type")->value() );
-            Serial.println(content);
-            DynamicJsonDocument doc(1024);
-            auto error = deserializeJson(doc, content);
-            if (error)
-                request->send(400, "text/plain", error.c_str());
-            else {
-                int responseCode = apiJobHandler(doc.as<JsonObject>());
-                request->send(responseCode, "text/plain", "");
-            }
-            //request->send(200, "text/plain", "");
-            content = "";
-        }*/
-    });
-
+    // handle /api/files/local/filename.cgode in a separate handler for clarity
+    AsyncCallbackJsonWebHandler* fileOp = new AsyncCallbackJsonWebHandler("/api/files/local", [filesPrefixLen](AsyncWebServerRequest *req, JsonVariant &json) {
+        JsonObject doc = json.as<JsonObject>();
+        String file = req->url().substring(filesPrefixLen);
+        Serial.printf("JSON %s, file is %s\n", req->url().c_str(), file.c_str() );
+        if( doc["command"] == "select" ) {
+            Job *job = Job::getJob();
+            job->setFile(file);
+            if(doc["print"] == true) job->start();
+            // fail with 409 if no printer
+            req->send(204, "text/plain", "");
+        } else {
+            req->send(200, "text/plain", "Unsupported op");
+        }
+        
+    });    
+    server.addHandler(fileOp).setFilter( [filesPrefixLen](AsyncWebServerRequest *req){ return req->url().length()>filesPrefixLen; } ); 
+    
 
     server.on("/api/job", HTTP_GET, [this](AsyncWebServerRequest * request) {
         // http://docs.octoprint.org/en/master/api/job.html#retrieve-information-about-the-current-job
@@ -214,36 +210,13 @@ void WebServer::registerOptoPrintApi() {
                 "}");
     });
 
-    server.on("/api/job", HTTP_POST, [](AsyncWebServerRequest *request) {
-            // Job commands http://docs.octoprint.org/en/master/api/job.html#issue-a-job-command
-            request->send(200, "text/plain", "");
-        },
-        [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
-            request->send(400, "text/plain", "file not supported");
-        },
-        [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-            static String content;
-
-            if (index==0)
-                content = "";
-            for (int i = 0; i < len; ++i)
-                content += (char)data[i];
-            if (index+len == total) {
-                Serial.println("POST /api/job");
-                Serial.println(content);
-                DynamicJsonDocument doc(1024);
-                auto error = deserializeJson(doc, content);
-                if (error)
-                    request->send(400, "text/plain", error.c_str());
-                else {
-                    int responseCode = apiJobHandler(doc.as<JsonObject>());
-                    request->send(responseCode, "text/plain", "");
-                }
-                request->send(200, "text/plain", "");
-                content = "";
-            }
-        }
-    );
+    AsyncCallbackJsonWebHandler* jobHandler = new AsyncCallbackJsonWebHandler("/api/job", [this](AsyncWebServerRequest *req, JsonVariant &json) {
+        JsonObject doc = json.as<JsonObject>();        
+        Serial.printf("JSON %s\n", req->url().c_str() );
+        int responseCode = apiJobHandler(doc);
+        req->send(responseCode, "text/plain", "");
+    });    
+    server.addHandler(jobHandler);
 
     // this handles API key check from Cura
     server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -305,49 +278,35 @@ void WebServer::registerOptoPrintApi() {
     });
 
     // http://docs.octoprint.org/en/master/api/printer.html#send-an-arbitrary-command-to-the-printer
-    server.on("/api/printer/command", HTTP_POST, [](AsyncWebServerRequest *request) {
-            request->send(200, "text/plain", "");
-        },
-        [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
-            request->send(400, "text/plain", "file not supported");
-        },
-        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-            static String content;
-            
-            if (!index)
-                content = "";
-            for (size_t i = 0; i < len; ++i)
-                content += (char)data[i];
-            if ( index+len == total) {
-                /*DynamicJsonDocument doc(1024);
-                auto error = deserializeJson(doc, content);
-                if (error)
-                    request->send(400, "text/plain", error.c_str());
-                else {
-                    JsonObject root = doc.as<JsonObject>();
-                    const char* command = root["command"];
-                    if (command != NULL)
-                        commandQueue.push(command);
-                    else {
-                        JsonArray commands = root["commands"].as<JsonArray>();
-                        for (JsonVariant command : commands)
-                            commandQueue.push(String(command.as<String>()));
-                    }
-                    request->send(204, "text/plain", "");
-                }*/
-                Serial.println("POST /api/printer/command");
-                Serial.println(content);
-                request->send(204, "text/plain", "");
-                content = "";
+    AsyncCallbackJsonWebHandler* printerCommandHandler = new AsyncCallbackJsonWebHandler(
+        "/api/printer/command", 
+        [this](AsyncWebServerRequest *req, JsonVariant &json) {
+            JsonObject doc = json.as<JsonObject>();        
+            Serial.printf("JSON %s\n", req->url().c_str() );
+            /*
+            const char* command = root["command"];
+            if (command != NULL)
+                commandQueue.push(command);
+            else {
+                JsonArray commands = root["commands"].as<JsonArray>();
+                for (JsonVariant command : commands)
+                    commandQueue.push(String(command.as<String>()));
             }
-            
+            request->send(204, "text/plain", "");
+            */
+            GCodeDevice * dev = GCodeDevice::getDevice();
+            JsonArray commands = doc["commands"].as<JsonArray>();
+            for (JsonVariant command : commands)
+                dev->scheduleCommand(String(command.as<String>()));
+            req->send(204, "text/plain", "");
         }
-    );
+    );    
+    server.addHandler(printerCommandHandler);
 
 }
 
 
-int WebServer::apiJobHandler(JsonObject root) {
+int WebServer::apiJobHandler(JsonObject &root) {
   const char* command = root["command"];
   Job *job = Job::getJob();
 
