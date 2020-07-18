@@ -6,6 +6,7 @@
 
 #define GD_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
 #define GD_DEBUGS(s)  { Serial.println(s); }
+#define GD_DEBUGLN GD_DEBUGS
 
 #define KEEPALIVE_INTERVAL 2500    // Marlin defaults to 2 seconds, get a little of margin
 
@@ -22,11 +23,16 @@ public:
     static void setDevice(GCodeDevice *dev);
 
     GCodeDevice(Stream & s): printerSerial(s), connected(true)  {}
-    virtual ~GCodeDevice() {}
+    virtual ~GCodeDevice() { }
 
-    virtual bool scheduleCommand(String cmd) = 0;
-    virtual bool schedulePriorityCommand(String cmd) { return scheduleCommand(cmd); } ;
-    virtual bool canSchedule() = 0;
+    virtual bool scheduleCommand(String cmd) {
+        if(panic) return false;
+        return queue->push(cmd);
+    };
+    virtual bool schedulePriorityCommand(String cmd) { 
+        return queue->pushPriority(cmd);
+    } ;
+    virtual bool canSchedule() { return queue->getFreeSlots()>0; }
 
     virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
 
@@ -44,28 +50,53 @@ public:
 
     bool isConnected() { return connected; }
 
-    virtual void enableStatusUpdates(bool v) = 0;
-
     virtual void reset()=0;
 
     bool isInPanic() { return panic; }
+
+    virtual void enableStatusUpdates(bool v) {
+        if(v) nextStatusRequestTime = millis();
+        else nextStatusRequestTime = 0;
+    }
+
+    String getDescrption() { return desc; }
 
 protected:
     Stream & printerSerial;
 
     uint32_t serialRxTimeout;
     bool connected;
+    String desc;
 
-    void resetWatchdog() {
+    void armRxTimeout() {
+        //GD_DEBUGLN(enable ? "GCodeDevice::resetRxTimeout enable" : "GCodeDevice::resetRxTimeout disable");
         serialRxTimeout = millis() + KEEPALIVE_INTERVAL;
     };
+    void disarmRxTimeout() {        
+        serialRxTimeout=0; 
+    };
+    void updateRxTimeout() {
+        if(isRxTimeoutEnabled() ) { if(queue->allAcknowledged()) disarmRxTimeout(); else armRxTimeout(); }
+    }
+
+    bool isRxTimeoutEnabled() { return serialRxTimeout!=0; }
 
     void checkTimeout() {
-        if (millis() > serialRxTimeout) connected = false;
+        if( !isRxTimeoutEnabled() ) return;
+        if (millis() > serialRxTimeout) { 
+            connected = false; 
+            GD_DEBUGLN("GCodeDevice::checkTimeout fired"); 
+            cleanupQueue();
+            disarmRxTimeout(); 
+        }
     }
+
+    virtual void cleanupQueue() { queue->clear(); }
 
     float x,y,z;
     bool panic = false;
+    uint32_t nextStatusRequestTime;
+    AbstractQueue *queue;
 
 private:
     static GCodeDevice *device;
@@ -77,23 +108,9 @@ private:
 class GrblDevice : public GCodeDevice {
 public:
 
-    GrblDevice(Stream & s): GCodeDevice(s) {};
+    GrblDevice(Stream & s): GCodeDevice(s) { queue=&commandQueue; desc = "Grbl"; };
 
     virtual ~GrblDevice() {}
-
-    virtual bool scheduleCommand(String cmd) {
-        if(panic) return false;
-        return commandQueue.push(cmd);
-    };
-
-    virtual bool schedulePriorityCommand(String cmd) { 
-        if(panic) return false;
-        return immediateQueue.push(cmd);
-    } ;
-
-    virtual bool canSchedule() {
-        return commandQueue.getFreeSlots();
-    }
 
     virtual bool jog(uint8_t axis, float dist, int feed) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z'};
@@ -103,75 +120,13 @@ public:
 
     virtual void reset() {
         panic = false;
-        commandQueue.clear();
-        immediateQueue.clear();
+        cleanupQueue();
         schedulePriorityCommand("$X");
     }
 
-    virtual void sendCommands() {
-        if(panic) return;
-        String command;
-        if(immediateQueue.hasUnsent() ) {
-            command = immediateQueue.markSent();
-            printerSerial.print(command);
-            printerSerial.print("\n");
-            resetWatchdog();
-            GD_DEBUGF("Sent '%s', immediate\n", command.c_str());
-            return;
-        }
-        command = commandQueue.peekSend();
-        if (command != "") {
-            String s = commandQueue.markSent();
-            if(s=="") {
-                GD_DEBUGF("Not sent, free space: %d\n", commandQueue.getRemoteFreeSpace());
-            } else {
-                GD_DEBUGF("Sent '%s', free space %d\n", command.c_str(), commandQueue.getRemoteFreeSpace());
-                printerSerial.print(command);  
-                printerSerial.print("\n");
-                resetWatchdog();
-            }
-        }
-    };
+    virtual void sendCommands();
 
-    virtual void receiveResponses() {
-
-        static int lineStartPos = 0;
-        static String resp;
-
-        while (printerSerial.available()) {
-            char ch = (char)printerSerial.read();
-            if (ch != '\n')
-                resp += ch;
-            else {
-                //bool incompleteResponse = false;
-                String responseDetail = "";
-
-                //DEBUGF("Got response %s\n", serialResponse.c_str() );
-
-                if (resp.startsWith("ok", lineStartPos)) {
-                    if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
-                    responseDetail = "ok";
-                } else 
-                if (resp.startsWith("error") ) {
-                    if(!immediateQueue.allAcknowledged() ) immediateQueue.markAcknowledged(); else commandQueue.markAcknowledged();
-                    responseDetail = "error";
-                    DeviceError err = { 1 };
-                    notify_observers(err); panic=true;
-                } else
-                if ( resp.startsWith("<") ) {
-                    parseGrblStatus(resp);
-                }
-                GD_DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
-                resp = "";
-            }
-        }
-
-    };
-
-    virtual void enableStatusUpdates(bool v) {
-        if(v) nextPosRequestTime = millis();
-        else nextPosRequestTime = 0;
-    }
+    virtual void receiveResponses();
 
     virtual void loop() override {
         GCodeDevice::loop();
@@ -182,33 +137,92 @@ public:
     }
     
 private:
-    CommandQueue<16, 100> commandQueue;
-    CommandQueue<3, 0> immediateQueue;
+    DoubleCommandQueue<16, 100, 3> commandQueue;
 
     uint32_t nextPosRequestTime;
     
     String lastReceivedResponse;
 
-    void parseGrblStatus(String v) {
-        //<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
-        GD_DEBUGF("parsing %s\n", v.c_str() );
-        int pos;
-        pos = v.indexOf('|');
-        if(pos==-1) return;
-        String stat = v.substring(1,pos);
-        v = v.substring(pos+1);
-        if(v.startsWith("MPos:")) {
-            int p2 = v.indexOf(',');
-            x = v.substring(5, p2).toFloat();
-            v = v.substring(p2+1);
-            p2 = v.indexOf(',');
-            y = v.substring(0, p2).toFloat();
-            v = v.substring(p2+1);
-            p2 = v.indexOf('|');
-            z = v.substring(0, p2).toFloat();
+    void parseGrblStatus(String v);
+
+};
+
+
+class MarlinDevice: public GCodeDevice {
+
+public:
+
+    MarlinDevice(Stream & s): GCodeDevice(s) { queue=&commandQueue; desc="Marlin"; }
+
+    virtual ~MarlinDevice() {}
+
+    virtual bool jog(uint8_t axis, float dist, int feed) override {
+        constexpr const char AXIS[] = {'X', 'Y', 'Z', 'E'};
+        char msg[81]; snprintf(msg, 81, "G91 G0 F%d %c%04f G90", feed, AXIS[axis], dist);
+        return schedulePriorityCommand(msg);
+    }
+
+    virtual void reset() {        
+        cleanupQueue();
+        //schedulePriorityCommand("$X");
+    }
+
+    virtual void sendCommands();
+
+    virtual void receiveResponses() ;
+
+    virtual void loop() override {
+        GCodeDevice::loop();
+        if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
+            schedulePriorityCommand("M114");
+            nextStatusRequestTime = millis() + 1000;
         }
     }
 
+private:
 
+    static const int MAX_SUPPORTED_EXTRUDERS = 3;
+
+    struct Temperature {
+        float actual;
+        float target;
+    };
+
+    CommandQueue<16, 0> commandQueue;
+    int fwExtruders;
+    bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
+    bool autoreportTempEnabled;
+
+    Temperature toolTemperature[MAX_SUPPORTED_EXTRUDERS];
+    Temperature bedTemperature;
+    String lastReceivedResponse;
+    float ePos; ///< extruder pos
+
+    bool parseTemperatures(const String &response);
+
+    // Parse temperatures from printer responses like
+    // ok T:32.8 /0.0 B:31.8 /0.0 T0:32.8 /0.0 @:0 B@:0
+    bool parseTemp(const String &response, const String whichTemp, Temperature *temperature);
+    
+    // Parse position responses from printer like
+    // X:-33.00 Y:-10.00 Z:5.00 E:37.95 Count X:-3300 Y:-1000 Z:2000
+    bool parsePosition(const String &str);
+
+    bool parseM115(const String &str);
+
+
+    static float extractFloat(const String &str, const String key) ;
+    
+    static bool isFloat(const String value);
+
+    // Parse temperatures from prusa firmare (sent when heating)
+    // ok T:32.8 E:0 B:31.8
+    static bool extractPrusaHeatingTemp(const String &response, const String whichTemp, float &temperature) ;
+
+    static int extractPrusaHeatingExtruder(const String &response) ;
+
+    static String extractM115String(const String &response, const String field) ;
+
+    static bool extractM115Bool(const String &response, const String field, const bool onErrorValue = false);
 
 };

@@ -37,8 +37,8 @@ WebServer server;
 
 FileChooser fileChooser;
 
-GrblDevice grbl(PrinterSerial);
-GCodeDevice *dev = &grbl;
+MarlinDevice _dev(PrinterSerial);
+GCodeDevice *dev = &_dev;
 
 Job *job;
 
@@ -239,8 +239,11 @@ void loop() {
 
     draw();
 
-    if(Serial.available()) {
-        PrinterSerial.write( Serial.read() );
+    static String s;
+    while(Serial.available()!=0) {
+        char c = Serial.read();
+        if(c=='\n' || c=='\r') { if(s) dev->scheduleCommand(s); s=""; continue; }
+        s += c;
     }
 
 }

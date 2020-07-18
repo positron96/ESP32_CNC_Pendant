@@ -24,7 +24,7 @@ private:
     void registerOptoPrintApi() ;
     
     /** Retuns path in a form of /dir1/dir2 (leaading slash, no trailing slash). */
-    static String extractPath(String sdir);
+    static String extractPath(String sdir, int prefixLen);
 
     void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 

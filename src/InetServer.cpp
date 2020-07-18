@@ -111,7 +111,7 @@ void WebServer::registerOptoPrintApi() {
                 "}");
     });
 
-    const int filesPrefixLen = strlen("/api/files/local");
+    static const int filesPrefixLen = strlen("/api/files/local");
 
     // only handle fle uploads
     server.on("/api/files/local", HTTP_POST, [this](AsyncWebServerRequest * request) {
@@ -149,12 +149,13 @@ void WebServer::registerOptoPrintApi() {
             filename = pos == -1 ? "/" + filename : filename.substring(pos);
         }
         handleUpload(req, filename, index, data, len, final);
-    } ).setFilter([filesPrefixLen](AsyncWebServerRequest *req){ return req->url().length()==filesPrefixLen; } );
+    } ).setFilter([](AsyncWebServerRequest *req){ return req->url().length()==filesPrefixLen; } );
+
 
     // handle /api/files/local/filename.cgode in a separate handler for clarity
-    AsyncCallbackJsonWebHandler* fileOp = new AsyncCallbackJsonWebHandler("/api/files/local", [filesPrefixLen](AsyncWebServerRequest *req, JsonVariant &json) {
+    AsyncCallbackJsonWebHandler* fileOp = new AsyncCallbackJsonWebHandler("/api/files/local", [this](AsyncWebServerRequest *req, JsonVariant &json) {
         JsonObject doc = json.as<JsonObject>();
-        String file = req->url().substring(filesPrefixLen);
+        String file = extractPath(req->url(), filesPrefixLen);
         Serial.printf("JSON %s, file is %s\n", req->url().c_str(), file.c_str() );
         if( doc["command"] == "select" ) {
             Job *job = Job::getJob();
@@ -167,22 +168,24 @@ void WebServer::registerOptoPrintApi() {
         }
         
     });    
-    server.addHandler(fileOp).setFilter( [filesPrefixLen](AsyncWebServerRequest *req){ return req->url().length()>filesPrefixLen; } ); 
+    server.addHandler(fileOp).setFilter( [](AsyncWebServerRequest *req){ return req->url().length()>filesPrefixLen; } ); 
     
 
     server.on("/api/job", HTTP_GET, [this](AsyncWebServerRequest * request) {
         // http://docs.octoprint.org/en/master/api/job.html#retrieve-information-about-the-current-job
         Serial.println("GET /api/job");
         
-        /*if (isPrinting) {
-            printTime = (millis() - printStartTime) / 1000;
-            printTimeLeft = (printCompletion > 0) ? printTime / printCompletion * (100 - printCompletion) : INT32_MAX;
-        }*/
         Job *job = Job::getJob();
         if(job==nullptr) {//} || !job->isValid()) {
             request->send(500, "text/plain", "");
         }
-        int32_t printTime = job->getPrintDuration()/1000, printTimeLeft = 0;
+        int32_t printTime=0, printTimeLeft = INT32_MAX;
+        if (job->isRunning() ) {
+            printTime = job->getPrintDuration() / 1000;
+            float p = job->getPercentage();
+            printTimeLeft = (p > 0) ? printTime / p * (1-p) : INT32_MAX;
+        }
+        
         request->send(200, "application/json", "{\r\n"
                 "  \"job\": {\r\n"
                 "    \"file\": {\r\n"
@@ -210,12 +213,14 @@ void WebServer::registerOptoPrintApi() {
                 "}");
     });
 
-    AsyncCallbackJsonWebHandler* jobHandler = new AsyncCallbackJsonWebHandler("/api/job", [this](AsyncWebServerRequest *req, JsonVariant &json) {
-        JsonObject doc = json.as<JsonObject>();        
-        Serial.printf("JSON %s\n", req->url().c_str() );
-        int responseCode = apiJobHandler(doc);
-        req->send(responseCode, "text/plain", "");
-    });    
+    AsyncCallbackJsonWebHandler* jobHandler = new AsyncCallbackJsonWebHandler("/api/job", 
+        [this](AsyncWebServerRequest *req, JsonVariant &json) {
+            Serial.printf("JSON %s\n", req->url().c_str() );
+            JsonObject doc = json.as<JsonObject>();        
+            int responseCode = apiJobHandler(doc);
+            req->send(responseCode, "text/plain", "");
+        }
+    );
     server.addHandler(jobHandler);
 
     // this handles API key check from Cura
@@ -283,17 +288,6 @@ void WebServer::registerOptoPrintApi() {
         [this](AsyncWebServerRequest *req, JsonVariant &json) {
             JsonObject doc = json.as<JsonObject>();        
             Serial.printf("JSON %s\n", req->url().c_str() );
-            /*
-            const char* command = root["command"];
-            if (command != NULL)
-                commandQueue.push(command);
-            else {
-                JsonArray commands = root["commands"].as<JsonArray>();
-                for (JsonVariant command : commands)
-                    commandQueue.push(String(command.as<String>()));
-            }
-            request->send(204, "text/plain", "");
-            */
             GCodeDevice * dev = GCodeDevice::getDevice();
             JsonArray commands = doc["commands"].as<JsonArray>();
             for (JsonVariant command : commands)
@@ -345,9 +339,9 @@ int WebServer::apiJobHandler(JsonObject &root) {
   return 204;
 }
 
-/** Retuns path in a form of /dir1/dir2 (leaading slash, no trailing slash). */
-String WebServer::extractPath(String sdir) {
-    sdir = sdir.substring(4); // cut "/fs/"
+/** Returns path in a form of /dir1/dir2 (leaading slash, no trailing slash). */
+String WebServer::extractPath(String sdir, int prefixLen) {
+    sdir = sdir.substring(prefixLen); // cut "/fs/"
     if(sdir.length()>1 && sdir.endsWith("/") ) sdir=sdir.substring(0, sdir.length()-1); // remove trailing slash
     if(sdir.charAt(0) != '/') sdir = '/'+sdir;
     return sdir;
@@ -383,14 +377,20 @@ void WebServer::registerWebBrowser() {
         request->send(404, "text/plain", "Page not found!");
     });
 
+
+    static const char fsPrefix[] = "/fs";
+    static const char fsPrefixSlash[] = "/fs/";
+    static const char fsPrefixLength = strlen(fsPrefixSlash);
+
     server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
         Serial.printf("Requested /, redirecting to /fs\n" );
-        request->redirect("/fs/");
+        request->redirect(fsPrefixSlash);
     });
-    server.serveStatic("/fs/", SD, "/").setDefaultFile(""); // disable index.htm searching
 
-    server.on("/fs", HTTP_GET, [](AsyncWebServerRequest * request) {
-        String sdir = extractPath(request->url() );            
+    server.serveStatic(fsPrefix, SD, "/").setDefaultFile(""); // disable index.htm searching
+
+    server.on(fsPrefix, HTTP_GET, [](AsyncWebServerRequest * request) {
+        String sdir = extractPath(request->url(), fsPrefixLength );            
         
         Serial.println("listing dir "+sdir);
         File dir = SD.open(sdir);
@@ -402,7 +402,10 @@ void WebServer::registerWebBrowser() {
 
         if(sdir.length()>1) {
             int p=sdir.lastIndexOf('/'); 
-            resp+="<li><a href=\"/fs/"+sdir.substring(0,p)+"\">../</a></li>\n";
+            resp += "<li><a href=\"";
+            resp += fsPrefixSlash;
+            resp += sdir.substring(0,p);
+            resp += "\">../</a></li>\n";
         }
         File f;
         while( f = dir.openNextFile() ) {
@@ -424,7 +427,7 @@ void WebServer::registerWebBrowser() {
     }, [this](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
         if(index==0) {
             String sdir = req->url();
-            sdir = extractPath(sdir);
+            sdir = extractPath(sdir,fsPrefixLength);
             if(!sdir.endsWith("/") ) sdir += '/';
             filename = sdir + filename;
         }
