@@ -100,7 +100,7 @@ void setup() {
     attachInterrupt(PIN_BT2, bt2ISR, CHANGE);
     attachInterrupt(PIN_BT3, bt3ISR, CHANGE);
 
-    PrinterSerial.begin(115200);
+    PrinterSerial.begin(250000);
 
     Serial.begin(115200);
 
@@ -127,7 +127,6 @@ void setup() {
     job = Job::getJob();
     dev->add_observer( *job );
 
-    
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -135,6 +134,7 @@ void setup() {
             job->resume();
             
             cMode = Mode::DRO;
+            dev->enableStatusUpdates();
         }
     } );
 
@@ -226,14 +226,6 @@ void loop() {
     processButtons();
 
     job->loop();
-
-    /*static uint32_t nextPosRequestTime;
-    if(cMode==Mode::DRO) {
-        if(millis() > nextPosRequestTime) {
-            dev.schedulePriorityCommand("?");
-            nextPosRequestTime = millis() + 1000;
-        }
-    }*/
 
     dev->loop();
 
