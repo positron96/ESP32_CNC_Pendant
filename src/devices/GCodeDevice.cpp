@@ -109,7 +109,7 @@ void MarlinDevice::sendCommands() {
         if(s=="") {
             GD_DEBUGF("Not sent, free slots: %d\n", commandQueue.getFreeSlots() );
         } else {
-            GD_DEBUGF("Sent '%s', free slots %d\n", command.c_str(), commandQueue.getFreeSlots());
+            GD_DEBUGF("TX (free slots %d) '%s'\n", commandQueue.getFreeSlots(), command.c_str() );
             printerSerial.print(command);  
             printerSerial.print("\n");
             armRxTimeout();
@@ -131,7 +131,7 @@ void MarlinDevice::receiveResponses() {
         else {
 
             curCmd = commandQueue.peekUnacknowledged();
-            GD_DEBUGF("Got response %s; current cmd %s\n", resp.c_str(), curCmd.c_str() );
+            GD_DEBUGF("RX '%s'; current cmd %s\n", resp.c_str(), curCmd.c_str() );
 
             if (resp.startsWith("ok", lineStartPos)) {
 
@@ -140,14 +140,15 @@ void MarlinDevice::receiveResponses() {
                 else if (fwAutoreportTempCap && curCmd.startsWith(AUTOTEMP_COMMAND))
                     autoreportTempEnabled = (curCmd[6] != '0');
                 
-                responseDetail = "ok";
+                responseDetail = "OK, ack '"+curCmd+"'";
                 commandQueue.markAcknowledged();     // Go on with next command
+                connected = true;
             } else if (connected) {
                 if(curCmd == "M115") {
                     parseM115(resp); responseDetail = "status";
                 } else if (parseTemperatures(resp))
                     responseDetail = "autotemp";
-                else if (curCmd=="M114" && parsePosition(resp))
+                else if (parsePosition(resp) )
                     responseDetail = "position";
                 else if (resp.startsWith("echo:busy"))
                     responseDetail = "busy";
@@ -171,7 +172,7 @@ void MarlinDevice::receiveResponses() {
                 responseDetail = "discovering";
             }
             
-            GD_DEBUGF("free slots: %d type:'%s', rx: \n", commandQueue.getFreeSlots(),  responseDetail.c_str()  );
+            GD_DEBUGF("free slots: %d type:'%s' \n", commandQueue.getFreeSlots(),  responseDetail.c_str()  );
             updateRxTimeout();
             resp = "";
         }
@@ -181,29 +182,33 @@ void MarlinDevice::receiveResponses() {
 
 
 
+// Parse temperatures from printer responses like
+// ok T:32.8 /0.0 B:31.8 /0.0 T0:32.8 /0.0 @:0 B@:0
 bool MarlinDevice::parseTemperatures(const String &response) {
     bool ret;
 
     if (fwExtruders == 1)
-        ret = parseTemp(response, "T", &toolTemperature[0]);
+        ret = parseTemp(response, "T", &toolTemperatures[0]);
     else {
         ret = false;
         for (int t = 0; t < fwExtruders; t++)
-        ret |= parseTemp(response, "T" + String(t), &toolTemperature[t]);
+            ret |= parseTemp(response, "T" + String(t), &toolTemperatures[t]);
     }
     ret |= parseTemp(response, "B", &bedTemperature);
     if (!ret) {
         // Parse Prusa heating temperatures
         int e = extractPrusaHeatingExtruder(response);
-        ret = e >= 0 && e < MAX_SUPPORTED_EXTRUDERS && extractPrusaHeatingTemp(response, "T", toolTemperature[e].actual);
+        ret = e >= 0 && e < MAX_SUPPORTED_EXTRUDERS && extractPrusaHeatingTemp(response, "T", toolTemperatures[e].actual);
         ret |= extractPrusaHeatingTemp(response, "B", bedTemperature.actual);
     }
 
+    /*if(ret) GD_DEBUGF("Parsed temp E:%d->%d  B:%d->%d\n", 
+        (int)toolTemperatures[0].actual, (int)toolTemperatures[0].target,  
+        (int)bedTemperature.actual, (int)bedTemperature.target );*/
     return ret;
 }
 
-// Parse temperatures from printer responses like
-// ok T:32.8 /0.0 B:31.8 /0.0 T0:32.8 /0.0 @:0 B@:0
+// parses line T:aaa.aa /ttt.tt
 bool MarlinDevice::parseTemp(const String &response, const String whichTemp, Temperature *temperature) {
     int tpos = response.indexOf(whichTemp + ":");
     if (tpos != -1) { // This response contains a temperature
@@ -231,24 +236,24 @@ bool MarlinDevice::parsePosition(const String &str) {
     float t = extractFloat(str, "X:");
     if(!isnan(t) ) x = t; else return false;
     t = extractFloat(str, "Y:");
-    if(!isnan(t) ) x = t; else return false;
+    if(!isnan(t) ) y = t; else return false;
     t = extractFloat(str, "Z:");
     if(!isnan(t) ) z = t; else return false;
     t = extractFloat(str, "E:");
     if(!isnan(t) ) ePos = t; else return false;
-    GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
+    //GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
     return true;
 }
 
 bool MarlinDevice::parseM115(const String &str) {
-    desc = extractM115String(str, "FIRMWARE_NAME") + " " +extractM115String(str, "MACHINE_TYPE")+ " " + extractM115String(str, "MACHINE_TYPE");
+    desc = extractM115String(str, "FIRMWARE_NAME") + " " + extractM115String(str, "MACHINE_TYPE");
     String value = extractM115String(str, "EXTRUDER_COUNT");
     fwExtruders = value == "" ? 1 : min(value.toInt(), (long)MAX_SUPPORTED_EXTRUDERS);
     fwAutoreportTempCap = extractM115Bool(str, "Cap:AUTOREPORT_TEMP");
     fwProgressCap = extractM115Bool(str, "Cap:PROGRESS");
     fwBuildPercentCap = extractM115Bool(str, "Cap:BUILD_PERCENT");
-    GD_DEBUGF("Parsed M115: desc=%s, extruders:%d, autotemp:%d, progress:%d, buildPercent:%d\n", 
-        desc.c_str(), fwExtruders, fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap );
+    //GD_DEBUGF("Parsed M115: desc=%s, extruders:%d, autotemp:%d, progress:%d, buildPercent:%d\n", 
+    //    desc.c_str(), fwExtruders, fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap );
     return true;
 }
 
@@ -263,7 +268,8 @@ bool MarlinDevice::isFloat(const String value) {
 
 inline float MarlinDevice::extractFloat(const String &str, const String key) {
     int s = str.indexOf(key);
-    if(s==-1) return NAN;
+    if(s==-1) return NAN; 
+    s += key.length();
     int e = str.indexOf(' ', s);
     if(e==-1) e=str.length();
     return str.substring(s,e).toFloat();

@@ -30,6 +30,7 @@ public:
         return queue->push(cmd);
     };
     virtual bool schedulePriorityCommand(String cmd) { 
+        if(panic) return false;
         return queue->pushPriority(cmd);
     } ;
     virtual bool canSchedule() { return queue->getFreeSlots()>0; }
@@ -54,7 +55,7 @@ public:
 
     bool isInPanic() { return panic; }
 
-    virtual void enableStatusUpdates(bool v) {
+    virtual void enableStatusUpdates(bool v=true) {
         if(v) nextStatusRequestTime = millis();
         else nextStatusRequestTime = 0;
     }
@@ -148,6 +149,8 @@ private:
 };
 
 
+
+
 class MarlinDevice: public GCodeDevice {
 
 public:
@@ -158,8 +161,12 @@ public:
 
     virtual bool jog(uint8_t axis, float dist, int feed) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z', 'E'};
-        char msg[81]; snprintf(msg, 81, "G91 G0 F%d %c%04f G90", feed, AXIS[axis], dist);
-        return schedulePriorityCommand(msg);
+        char msg[81]; snprintf(msg, 81, "G0 F%d %c%04f", feed, AXIS[axis], dist);
+        if(commandQueue.getFreeSlots() < 3) return false;
+        schedulePriorityCommand("G91");
+        schedulePriorityCommand(msg);
+        schedulePriorityCommand("G90");
+        return true;
     }
 
     virtual void reset() {        
@@ -174,26 +181,31 @@ public:
     virtual void loop() override {
         GCodeDevice::loop();
         if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
-            schedulePriorityCommand("M114");
+            schedulePriorityCommand("M114"); // temp
+            schedulePriorityCommand("M105"); // pos
             nextStatusRequestTime = millis() + 1000;
         }
     }
-
-private:
-
-    static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
     struct Temperature {
         float actual;
         float target;
     };
 
-    CommandQueue<16, 0> commandQueue;
+    const Temperature & getBedTemp() const { return bedTemperature; }
+    const Temperature & getExtruderTemp(uint8_t e) const { return toolTemperatures[e]; }
+    uint8_t getExtruderCount() const { return fwExtruders; }
+
+private:
+
+    static const int MAX_SUPPORTED_EXTRUDERS = 3;
+
+    CommandQueue<32, 0> commandQueue;
     int fwExtruders;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
     bool autoreportTempEnabled;
 
-    Temperature toolTemperature[MAX_SUPPORTED_EXTRUDERS];
+    Temperature toolTemperatures[MAX_SUPPORTED_EXTRUDERS];
     Temperature bedTemperature;
     String lastReceivedResponse;
     float ePos; ///< extruder pos
