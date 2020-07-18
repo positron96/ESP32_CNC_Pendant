@@ -25,7 +25,7 @@ void Job::loop() {
             cline[len++] = rd;
         }        
         if(gcodeFile.available()==0) running = false;
-        percentage = 1.0 - gcodeFile.available()*1.0/fileSize;
+        filePos = fileSize - gcodeFile.available();
 
         cline[len]=0;
 

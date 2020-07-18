@@ -21,7 +21,7 @@ public:
 
         gcodeFile = SD.open(file);
         if(gcodeFile) fileSize = gcodeFile.size();
-        percentage=0; 
+        filePos = 0;
         running = false; 
     }
 
@@ -39,7 +39,8 @@ public:
     void setPaused(bool v) { paused = v; }
     bool isPaused() { return paused; }
 
-    float getPercentage() { return percentage; }
+    float getPercentage() { if(isValid()) return 1.0 * filePos/fileSize; else return 0; }
+    size_t getFilePos() { if(isValid()) return filePos; else return 0;}
     size_t getFileSize() { if(isValid()) return fileSize; else return 0;}
     bool isValid() { return (bool)gcodeFile; }
     String getFilename() { if(isValid()) return gcodeFile.name(); else return ""; }
@@ -49,9 +50,10 @@ private:
 
     File gcodeFile;
     uint32_t fileSize;
+    uint32_t filePos;
     uint32_t startTime;
 
-    float percentage = 0;
+    //float percentage = 0;
     bool running;
     bool paused;
 
