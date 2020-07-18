@@ -57,6 +57,20 @@ void WebServer::begin() {
 
 }
 
+inline String stringify(bool value) {
+  return value ? "true" : "false";
+}
+
+String getState(Job * job = nullptr, MarlinDevice * dev = nullptr) {
+    if(job==nullptr) job=Job::getJob();
+    if(dev==nullptr) dev=static_cast<MarlinDevice*>( GCodeDevice::getDevice() );
+    if(dev->isInPanic()) return "Error";
+    if(!dev->isConnected() ) return "Offline";
+    if(job->isPaused()) return "Paused";
+    if(job->isRunning()) return "Printing";
+    //if(job->)
+    return "Operational";
+}
 
 void WebServer::registerOptoPrintApi() {
     
@@ -143,7 +157,7 @@ void WebServer::registerOptoPrintApi() {
         request->send(response);
 
     }, [this](AsyncWebServerRequest *req, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-        Serial.printf("FILE %s file %s\n", req->url().c_str(), filename.c_str() );
+        //Serial.printf("FILE %s file %s\n", req->url().c_str(), filename.c_str() );
         if(index==0) {
             int pos = filename.lastIndexOf("/");
             filename = pos == -1 ? "/" + filename : filename.substring(pos);
@@ -153,27 +167,29 @@ void WebServer::registerOptoPrintApi() {
 
 
     // handle /api/files/local/filename.cgode in a separate handler for clarity
-    AsyncCallbackJsonWebHandler* fileOp = new AsyncCallbackJsonWebHandler("/api/files/local", [this](AsyncWebServerRequest *req, JsonVariant &json) {
-        JsonObject doc = json.as<JsonObject>();
-        String file = extractPath(req->url(), filesPrefixLen);
-        Serial.printf("JSON %s, file is %s\n", req->url().c_str(), file.c_str() );
-        if( doc["command"] == "select" ) {
-            Job *job = Job::getJob();
-            job->setFile(file);
-            if(doc["print"] == true) job->start();
-            // fail with 409 if no printer
-            req->send(204, "text/plain", "");
-        } else {
-            req->send(200, "text/plain", "Unsupported op");
+    AsyncCallbackJsonWebHandler* fileOp = new AsyncCallbackJsonWebHandler("/api/files/local", 
+            [this](AsyncWebServerRequest *req, JsonVariant &json) {
+            JsonObject doc = json.as<JsonObject>();
+            String file = extractPath(req->url(), filesPrefixLen);
+            Serial.printf("JSON %s, file is %s\n", req->url().c_str(), file.c_str() );
+            if( doc["command"] == "select" ) {
+                Job *job = Job::getJob();
+                job->setFile(file);
+                if(doc["print"] == true) job->start();
+                // fail with 409 if no printer
+                req->send(204, "text/plain", "");
+            } else {
+                req->send(200, "text/plain", "Unsupported op");
+            }
+            
         }
-        
-    });    
+    );    
     server.addHandler(fileOp).setFilter( [](AsyncWebServerRequest *req){ return req->url().length()>filesPrefixLen; } ); 
     
 
     server.on("/api/job", HTTP_GET, [this](AsyncWebServerRequest * request) {
         // http://docs.octoprint.org/en/master/api/job.html#retrieve-information-about-the-current-job
-        Serial.println("GET /api/job");
+        //Serial.println("GET /api/job");
         
         Job *job = Job::getJob();
         if(job==nullptr) {//} || !job->isValid()) {
@@ -191,25 +207,23 @@ void WebServer::registerOptoPrintApi() {
                 "    \"file\": {\r\n"
                 "      \"name\": \"" + job->getFilename() + "\",\r\n"
                 "      \"origin\": \"local\",\r\n"
-                "      \"size\": " + String(job->getFileSize()) + ",\r\n"
-                "      \"date\": \"2020-06-02-10:11:12\"\r\n"
-                //"      \"date\": " + String(uploadedFileDate) + "\r\n"
+                "      \"size\": " + String(job->getFileSize() ) + "\r\n"
                 "    },\r\n"
-                //"    \"estimatedPrintTime\": \"" + estimatedPrintTime + "\",\r\n"
-                "    \"filament\": {\r\n"
+                "    \"estimatedPrintTime\": \"" + String(printTime + printTimeLeft) + "\" \r\n"
+                //"    \"filament\": {\r\n"
                 //"      \"length\": \"" + filementLength + "\",\r\n"
                 //"      \"volume\": \"" + filementVolume + "\"\r\n"
-                "    }\r\n"
+                //"    }\r\n"
                 "  },\r\n"
                 "  \"progress\": {\r\n"
-                "    \"completion\": " + String(job->getPercentage() ) + ",\r\n"
-                //"    \"filepos\": " + String(filePos) + ",\r\n"
-                "    \"filepos\": 100,\r\n"
+                "    \"completion\": " + String(job->getPercentage()*100 ) + ",\r\n"
+                "    \"filepos\": " + String(job->getFilePos()) + ",\r\n"
+                //"    \"filepos\": 0,\r\n"
                 "    \"printTime\": " + String(printTime) + ",\r\n"
-                "    \"printTimeLeft\": " + String(printTimeLeft) + "\r\n"
+                "    \"printTimeLeft\": " + String(printTimeLeft) + ",\r\n"
+                "    \"printTimeLeftOrigin\": \"linear\"\r\n"
                 "  },\r\n"
-                //"  \"state\": \"" + getState() + "\"\r\n"
-                "  \"state\": \"Operational\"\r\n"
+                "  \"state\": \"" + getState(job) + "\"\r\n"
                 "}");
     });
 
@@ -232,52 +246,46 @@ void WebServer::registerOptoPrintApi() {
 
 
     server.on("/api/printer", HTTP_GET, [this](AsyncWebServerRequest * request) {
-        Serial.print("GET "); Serial.println(request->url() );
+        //Serial.print("GET "); Serial.println(request->url() );
         // https://docs.octoprint.org/en/master/api/printer.html#retrieve-the-current-printer-state
         //String readyState = stringify(printerConnected);
+        Job * job = Job::getJob();
+        MarlinDevice * dev = static_cast<MarlinDevice*>(GCodeDevice::getDevice());
+        String readyState = stringify(dev->isConnected());
         String message = "{\r\n"
                 "  \"state\": {\r\n"
-                //"    \"text\": \"" + getState() + "\",\r\n"
-                "    \"text\": \"Operational\",\r\n"
+                "    \"text\": \"" + getState(job,dev) + "\",\r\n"
                 "    \"flags\": {\r\n"
-                //"      \"operational\": " + readyState + ",\r\n"
-                "      \"operational\": true,\r\n"
-                //"      \"paused\": " + stringify(printPause) + ",\r\n"
-                "      \"paused\": false,\r\n"
-                //"      \"printing\": " + stringify(isPrinting) + ",\r\n"
-                "      \"printing\": false,\r\n"
+                "      \"operational\": " + readyState + ",\r\n"
+                "      \"paused\": " + stringify(job->isPaused()) + ",\r\n"
+                "      \"printing\": " + stringify(job->isRunning()) + ",\r\n"
                 "      \"pausing\": false,\r\n"
                 //"      \"cancelling\": " + stringify(cancelPrint) + ",\r\n"
+                "      \"cancelling\": false,\r\n"
                 "      \"sdReady\": false,\r\n"
                 "      \"error\": false,\r\n"
-                //"      \"ready\": " + readyState + ",\r\n"
-                "      \"ready\": true,\r\n"
-                //"      \"closedOrError\": " + stringify(!printerConnected) + "\r\n"
-                "      \"closedOrError\": false\r\n"
+                "      \"ready\": " + readyState + ",\r\n"
+                "      \"closedOrError\": " + stringify(!dev->isConnected()) + "\r\n"
                 "    }\r\n"
                 "  },\r\n"
                 "  \"temperature\": {\r\n";
-        int fwExtruders = 1;
-        for (int t = 0; t < fwExtruders; ++t) {
+        
+        for (int t = 0; t < dev->getExtruderCount(); ++t) {
             message += "    \"tool" + String(t) + "\": {\r\n"
-                    //"      \"actual\": " + toolTemperature[t].actual + ",\r\n"
-                    //"      \"target\": " + toolTemperature[t].target + ",\r\n"
-                    "      \"actual\": 25,\r\n"
-                    "      \"target\": 50,\r\n"
+                    "      \"actual\": " + String(dev->getExtruderTemp(t).actual) + ",\r\n"
+                    "      \"target\": " + String(dev->getExtruderTemp(t).target) + ",\r\n"
                     "      \"offset\": 0\r\n"
                     "    },\r\n";
         }
         message += "    \"bed\": {\r\n"
-                //"      \"actual\": " + bedTemperature.actual + ",\r\n"
-                //"      \"target\": " + bedTemperature.target + ",\r\n"
-                "      \"actual\": 25,\r\n"
-                "      \"target\": 30,\r\n"
+                "      \"actual\": " + String(dev->getBedTemp().actual) + ",\r\n"
+                "      \"target\": " + String(dev->getBedTemp().target) + ",\r\n"
                 "      \"offset\": 0\r\n"
                 "    }\r\n"
-                "  },\r\n"
-                "  \"sd\": {\r\n"
-                "    \"ready\": false\r\n"
                 "  }\r\n"
+                //"  \"sd\": {\r\n"
+                //"    \"ready\": false\r\n"
+                //"  }\r\n"
                 "}";
         request->send(200, "application/json", message);
     });
@@ -315,7 +323,7 @@ int WebServer::apiJobHandler(JsonObject &root) {
     else if (strcmp(command, "start") == 0) {
         if (job->isRunning() )
             return 409;
-        if(!job->isValid() ) job->setFile(uploadedFilePath);
+        if(!job->isValid() ) { job->setFile(uploadedFilePath); Serial.println("Starting empty job, selecting uploaded file"); }
         job->start();
     }
     else if (strcmp(command, "restart") == 0) {
