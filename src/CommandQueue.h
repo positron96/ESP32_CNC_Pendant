@@ -13,8 +13,10 @@ public:
     virtual bool isEmpty()=0;
     virtual bool hasUnsent()=0;
     virtual String peekUnsent()=0;
+    virtual bool canSend()=0;
     virtual String markSent()=0;
-    virtual bool allAcknowledged()=0;
+    bool allAcknowledged() { return !hasUnacknowledged(); };
+    virtual bool hasUnacknowledged()=0;
     virtual String markAcknowledged()=0;
     virtual String peekUnacknowledged()=0;
 };
@@ -70,6 +72,15 @@ public:
       return (tailSend == head) ? String() : buf[tailSend];
     }
 
+    bool canSend() override {
+        if (tailSend == head) return false;
+        if(LEN_BYTES>0) {
+            const String command = buf[tailSend];
+            return remoteBufFree>=command.length(); 
+        }
+        return true;
+    }
+
     // Returns marked command, and advances to the next
     String markSent()  override {
         if (tailSend == head)
@@ -89,8 +100,8 @@ public:
     }
 
     // Returns true if the command to be sent was the last sent (so there is no pending response)
-    bool allAcknowledged() override  {
-      return tailAck == tailSend;
+    bool hasUnacknowledged() override  {
+      return tailAck != tailSend;
     }
 
     // Returns the last command sent if it was received by the printer, otherwise returns empty
@@ -141,11 +152,12 @@ public:
     virtual bool pushPriority(const String command) {  return queue0.push(command); } 
     virtual bool isEmpty() { return queue0.isEmpty() && queue1.isEmpty(); }
     virtual bool hasUnsent() { return queue0.hasUnsent() && queue1.hasUnsent(); }
+    virtual bool canSend()      { if(queue0.hasUnsent()) return queue0.canSend();    else return queue1.canSend();    }
     virtual String peekUnsent() { if(queue0.hasUnsent()) return queue0.peekUnsent(); else return queue1.peekUnsent(); }
-    virtual String markSent() { if(queue0.hasUnsent()) return queue0.markSent(); else return queue1.markSent(); }
-    virtual bool allAcknowledged() { return queue0.allAcknowledged() && queue1.allAcknowledged(); }
-    virtual String markAcknowledged() { if(!queue0.allAcknowledged()) return queue0.markAcknowledged(); else return queue1.markAcknowledged(); }
-    virtual String peekUnacknowledged() { if(!queue0.allAcknowledged()) return queue0.peekUnacknowledged(); else return queue1.peekUnacknowledged(); }
+    virtual String markSent()   { if(queue0.hasUnsent()) return queue0.markSent();   else return queue1.markSent();   }
+    virtual bool hasUnacknowledged()    { return queue0.hasUnacknowledged() && queue1.hasUnacknowledged(); }
+    virtual String peekUnacknowledged() { if(queue0.hasUnacknowledged()) return queue0.peekUnacknowledged(); else return queue1.peekUnacknowledged(); }
+    virtual String markAcknowledged()   { if(queue0.hasUnacknowledged()) return queue0.markAcknowledged();   else return queue1.markAcknowledged(); }
 
 private:
     CommandQueue<LEN_LINES, LEN_BYTES> queue1;

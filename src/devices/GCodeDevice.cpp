@@ -63,13 +63,14 @@ void GrblDevice::sendCommands() {
     if(panic) return;
     String command = commandQueue.peekUnsent();
     if (command != "") {
-        String s = commandQueue.markSent();
-        if(s=="") {
+        bool r = commandQueue.canSend();
+        if(!r) {
             GD_DEBUGF("Not sent, free space: %d\n", commandQueue.getRemoteFreeSpace());
         } else {
             GD_DEBUGF("Sent '%s', free space %d\n", command.c_str(), commandQueue.getRemoteFreeSpace());
             printerSerial->print(command);  
             printerSerial->print("\n");
+            commandQueue.markSent();
             armRxTimeout();
         }
     }
@@ -147,13 +148,14 @@ void MarlinDevice::sendCommands() {
     String command;
     command = commandQueue.peekUnsent();
     if (command != "") {
-        String s = commandQueue.markSent();
-        if(s=="") {
+        bool r = commandQueue.canSend();
+        if(!r) {
             GD_DEBUGF("Not sent, free slots: %d\n", commandQueue.getFreeSlots() );
         } else {
             GD_DEBUGF("TX (free slots %d) '%s'\n", commandQueue.getFreeSlots(), command.c_str() );
             printerSerial->print(command);  
             printerSerial->print("\n");
+            commandQueue.markSent();
             armRxTimeout();
         }
     }

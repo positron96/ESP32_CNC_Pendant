@@ -126,6 +126,7 @@ public:
     virtual void begin() {
         GCodeDevice::begin();
         schedulePriorityCommand("$I");
+        schedulePriorityCommand("?");
     }
 
     virtual void reset() {
@@ -179,6 +180,13 @@ public:
         return true;
     }
 
+    virtual void begin() {
+        GCodeDevice::begin();
+        schedulePriorityCommand("M115");
+        schedulePriorityCommand("M114");
+        schedulePriorityCommand("M104");
+    }
+
     virtual void reset() {        
         cleanupQueue();
         schedulePriorityCommand("M112");
@@ -210,7 +218,7 @@ private:
 
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
-    CommandQueue<32, 0> commandQueue;
+    DoubleCommandQueue<30, 0, 2> commandQueue;
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
     bool autoreportTempEnabled;
