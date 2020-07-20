@@ -64,6 +64,7 @@ inline String stringify(bool value) {
 String getState(Job * job = nullptr, MarlinDevice * dev = nullptr) {
     if(job==nullptr) job=Job::getJob();
     if(dev==nullptr) dev=static_cast<MarlinDevice*>( GCodeDevice::getDevice() );
+    if(dev==nullptr) return "Offline";
     if(dev->isInPanic()) return "Error";
     if(!dev->isConnected() ) return "Offline";
     if(job->isPaused()) return "Paused";
@@ -95,8 +96,7 @@ void WebServer::registerOptoPrintApi() {
         // http://docs.octoprint.org/en/master/api/connection.html#get-connection-settings
         request->send(200, "application/json", "{\r\n"
                 "  \"current\": {\r\n"
-                //"    \"state\": \"" + getState() + "\",\r\n"
-                "    \"state\": \"Operational\",\r\n"
+                "    \"state\": \"" + getState() + "\",\r\n"
                 "    \"port\": \"Serial\",\r\n"
                 "    \"baudrate\": 115200,\r\n"
                 "    \"printerProfile\": \"Default\"\r\n"
@@ -251,7 +251,8 @@ void WebServer::registerOptoPrintApi() {
         //String readyState = stringify(printerConnected);
         Job * job = Job::getJob();
         MarlinDevice * dev = static_cast<MarlinDevice*>(GCodeDevice::getDevice());
-        String readyState = stringify(dev->isConnected());
+        bool connected = dev==nullptr ? false : dev->isConnected();
+        String readyState = stringify(connected);
         String message = "{\r\n"
                 "  \"state\": {\r\n"
                 "    \"text\": \"" + getState(job,dev) + "\",\r\n"
@@ -265,7 +266,7 @@ void WebServer::registerOptoPrintApi() {
                 "      \"sdReady\": false,\r\n"
                 "      \"error\": false,\r\n"
                 "      \"ready\": " + readyState + ",\r\n"
-                "      \"closedOrError\": " + stringify(!dev->isConnected()) + "\r\n"
+                "      \"closedOrError\": " + stringify(!connected) + "\r\n"
                 "    }\r\n"
                 "  },\r\n"
                 "  \"temperature\": {\r\n";
@@ -297,6 +298,7 @@ void WebServer::registerOptoPrintApi() {
             JsonObject doc = json.as<JsonObject>();        
             Serial.printf("JSON %s\n", req->url().c_str() );
             GCodeDevice * dev = GCodeDevice::getDevice();
+            if(dev==nullptr) { req->send(400, "text/plain", "No printer"); return; }
             JsonArray commands = doc["commands"].as<JsonArray>();
             for (JsonVariant command : commands)
                 dev->scheduleCommand(String(command.as<String>()));
