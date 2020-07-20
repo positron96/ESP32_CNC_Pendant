@@ -22,8 +22,11 @@ public:
     static GCodeDevice *getDevice();
     static void setDevice(GCodeDevice *dev);
 
-    GCodeDevice(Stream & s): printerSerial(s), connected(true)  {}
-    virtual ~GCodeDevice() { }
+    GCodeDevice(Stream * s): printerSerial(s), connected(false)  {}
+    GCodeDevice() : printerSerial(nullptr), connected(false) {}
+    virtual ~GCodeDevice() { clear_observers(); }
+
+    virtual void begin() { connected=true; };
 
     virtual bool scheduleCommand(String cmd) {
         if(panic) return false;
@@ -63,7 +66,7 @@ public:
     String getDescrption() { return desc; }
 
 protected:
-    Stream & printerSerial;
+    Stream * printerSerial;
 
     uint32_t serialRxTimeout;
     bool connected;
@@ -109,7 +112,8 @@ private:
 class GrblDevice : public GCodeDevice {
 public:
 
-    GrblDevice(Stream & s): GCodeDevice(s) { queue=&commandQueue; desc = "Grbl"; };
+    GrblDevice(Stream * s): GCodeDevice(s) { queue=&commandQueue; desc = "Grbl"; };
+    GrblDevice() : GCodeDevice() {desc = "Grbl";}
 
     virtual ~GrblDevice() {}
 
@@ -119,10 +123,15 @@ public:
         return schedulePriorityCommand(msg);
     }
 
+    virtual void begin() {
+        GCodeDevice::begin();
+        schedulePriorityCommand("$I");
+    }
+
     virtual void reset() {
         panic = false;
         cleanupQueue();
-        schedulePriorityCommand("$X");
+        schedulePriorityCommand(String((char)0x18));
     }
 
     virtual void sendCommands();
@@ -155,7 +164,8 @@ class MarlinDevice: public GCodeDevice {
 
 public:
 
-    MarlinDevice(Stream & s): GCodeDevice(s) { queue=&commandQueue; desc="Marlin"; }
+    MarlinDevice(Stream * s): GCodeDevice(s) { queue=&commandQueue; desc="Marlin"; }
+    MarlinDevice() : GCodeDevice() {desc = "Marlin";}
 
     virtual ~MarlinDevice() {}
 
@@ -171,7 +181,7 @@ public:
 
     virtual void reset() {        
         cleanupQueue();
-        //schedulePriorityCommand("$X");
+        schedulePriorityCommand("M112");
     }
 
     virtual void sendCommands();
@@ -201,7 +211,7 @@ private:
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
     CommandQueue<32, 0> commandQueue;
-    int fwExtruders;
+    int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
     bool autoreportTempEnabled;
 
@@ -236,5 +246,19 @@ private:
     static String extractM115String(const String &response, const String field) ;
 
     static bool extractM115Bool(const String &response, const String field, const bool onErrorValue = false);
+
+};
+
+
+class DeviceDetector {
+public:
+
+    constexpr static int N_TYPES = 2;
+
+    static void sendProbe(uint8_t i, Stream &serial);
+
+    static GCodeDevice* checkProbe(uint8_t i, String v, Stream &serial) ;
+
+private:
 
 };

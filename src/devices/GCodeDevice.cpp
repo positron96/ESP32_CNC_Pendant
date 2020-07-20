@@ -9,8 +9,50 @@ void GCodeDevice::setDevice(GCodeDevice *dev) {
     device = dev;
 }
 
+/*
+static union DevicesUnion {
+    GrblDevice grbl;
+    MarlinDevice marlin;
+    DevicesUnion() {  }
+    ~DevicesUnion() {  }
+} devices;*/
+#define MAX(a,b)  ( (a)>(b) ? (a) : (b) )
+static char deviceBuffer[MAX(sizeof(MarlinDevice), sizeof(GrblDevice))];
 
 
+void DeviceDetector::sendProbe(uint8_t i, Stream &serial) {
+    switch(i) {
+        case 0: 
+            serial.println();
+            serial.println("$I");
+            break;
+        case 1:
+            serial.println();
+            serial.println("M115");
+            break;
+    }
+}
+
+
+GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
+    if(i==0) {
+        if(v.indexOf("[VER:")!=-1 ) {
+            //devices.grbl = GrblDevice(&serial);
+            return new (deviceBuffer) GrblDevice(&serial);
+            //return (GCodeDevice*)deviceBuffer;
+        }
+    }
+    if(i==1) {
+        if(v.indexOf("MACHINE_TYPE") != -1) {
+            //devices.marlin = MarlinDevice(&serial);
+            return new (deviceBuffer) MarlinDevice(&serial);
+            //return (GCodeDevice*)deviceBuffer;
+        }
+    }
+
+    return nullptr;
+    //return false;
+}
 
 
 
@@ -26,8 +68,8 @@ void GrblDevice::sendCommands() {
             GD_DEBUGF("Not sent, free space: %d\n", commandQueue.getRemoteFreeSpace());
         } else {
             GD_DEBUGF("Sent '%s', free space %d\n", command.c_str(), commandQueue.getRemoteFreeSpace());
-            printerSerial.print(command);  
-            printerSerial.print("\n");
+            printerSerial->print(command);  
+            printerSerial->print("\n");
             armRxTimeout();
         }
     }
@@ -38,8 +80,8 @@ void GrblDevice::receiveResponses() {
     static int lineStartPos = 0;
     static String resp;
 
-    while (printerSerial.available()) {
-        char ch = (char)printerSerial.read();
+    while (printerSerial->available()) {
+        char ch = (char)printerSerial->read();
         if (ch != '\n')
             resp += ch;
         else {
@@ -110,8 +152,8 @@ void MarlinDevice::sendCommands() {
             GD_DEBUGF("Not sent, free slots: %d\n", commandQueue.getFreeSlots() );
         } else {
             GD_DEBUGF("TX (free slots %d) '%s'\n", commandQueue.getFreeSlots(), command.c_str() );
-            printerSerial.print(command);  
-            printerSerial.print("\n");
+            printerSerial->print(command);  
+            printerSerial->print("\n");
             armRxTimeout();
         }
     }
@@ -124,8 +166,8 @@ void MarlinDevice::receiveResponses() {
     String responseDetail;
     String curCmd;
 
-    while (printerSerial.available()) {
-        char ch = (char)printerSerial.read();
+    while (printerSerial->available()) {
+        char ch = (char)printerSerial->read();
         if (ch != '\n')
             resp += ch;
         else {

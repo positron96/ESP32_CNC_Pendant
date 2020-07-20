@@ -37,8 +37,7 @@ WebServer server;
 
 FileChooser fileChooser;
 
-MarlinDevice _dev(PrinterSerial);
-GCodeDevice *dev = &_dev;
+GCodeDevice *dev;// = &_dev;
 
 Job *job;
 
@@ -85,6 +84,9 @@ void bt1ISR();
 void bt2ISR();
 void bt3ISR();
 
+bool detectPrinterAttempt(uint32_t speed, uint8_t type);
+void detectPrinter();
+
 
 void setup() {
 
@@ -100,7 +102,7 @@ void setup() {
     attachInterrupt(PIN_BT2, bt2ISR, CHANGE);
     attachInterrupt(PIN_BT3, bt3ISR, CHANGE);
 
-    PrinterSerial.begin(250000);
+    //PrinterSerial.begin(250000);
 
     Serial.begin(115200);
 
@@ -123,9 +125,12 @@ void setup() {
     }
     Serial.println("initialization done.");
 
-    GCodeDevice::setDevice(dev);
+    
+    if(! detectPrinterAttempt(250000, 1) ) {
+        detectPrinter();
+    }
+    
     job = Job::getJob();
-    dev->add_observer( *job );
 
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
@@ -140,6 +145,40 @@ void setup() {
 
     server.begin();
     
+}
+
+const uint32_t serialBauds[] = { 115200, 250000, 57600 };    // Marlin valid bauds (removed very low bauds; roughly ordered by popularity to speed things up)
+
+bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
+    for(uint8_t retry=0; retry<2; retry++) {
+        DEBUGF("attempt: %d\n", retry);
+        PrinterSerial.end();
+        PrinterSerial.begin(speed);
+        PrinterSerial.setTimeout(2000);
+        DeviceDetector::sendProbe(type, PrinterSerial);            
+        String v = PrinterSerial.readStringUntil('\n'); v.trim();
+        DEBUGF("Got response '%s'\n", v.c_str() );
+        if(v) {
+            dev = DeviceDetector::checkProbe(type, v, PrinterSerial);
+            if(dev != nullptr) {
+                GCodeDevice::setDevice(dev);
+                dev->add_observer( *job );
+                dev->begin();
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void detectPrinter() {
+    while(true) {
+        for(uint32_t speed: serialBauds) {
+            DEBUGF("Trying speed: %d\n", speed);
+            for(int type=0; type<DeviceDetector::N_TYPES; type++)
+                if(detectPrinterAttempt(speed, type)) return;
+        }
+    }
 }
 
 
@@ -185,6 +224,7 @@ void processButtons() {
     static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
     for(int i=0; i<3; i++) {
         if(lastButtPressed[i] != buttonPressed[i]) {
+            //DEBUGF("button changed: %d %d\n", i, buttonPressed[i] );
             if(buttonPressed[i]) {
                 if(cMode==Mode::FILECHOOSER) fileChooser.buttonPressed(buttons[i]);
                 else { if(i==2) job->setPaused(!job->isPaused()); }
