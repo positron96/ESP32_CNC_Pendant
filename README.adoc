@@ -47,7 +47,7 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 ** [x] Uploading files to ESP32 from PC (Octoprint interface, rudimentary Web interface)
 ** [ ] Direct TCP/IP to UART bridge
 
-* [v] User interace (quick'n'dirty implementation works)
+* [x] User interace (quick'n'dirty implementation works)
 ** LCD, Jog wheel, buttons, axis selector, multiplier selector
 ** 2 main UI modes:
 *** Jogging and DRO
