@@ -1,3 +1,5 @@
+# A CNC Pendant That Is Also An Octoprint
+
 # Intro 
 
 I have a Creality Ender 3 3D printer and when I need to print anything, I constantly have to pull SD card from the printer, stick it into PC, copy files, pull from PC, stick into printer, wash, rinse, repeat. 
