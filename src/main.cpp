@@ -37,7 +37,7 @@ WebServer server;
 
 FileChooser fileChooser;
 
-GCodeDevice *dev;// = &_dev;
+GCodeDevice *dev = nullptr;
 
 Job *job;
 
@@ -87,6 +87,9 @@ void bt3ISR();
 bool detectPrinterAttempt(uint32_t speed, uint8_t type);
 void detectPrinter();
 
+void deviceLoop(void* pvParams);
+TaskHandle_t deviceTask;
+
 
 void setup() {
 
@@ -125,10 +128,8 @@ void setup() {
     }
     Serial.println("initialization done.");
 
-    
-    if(! detectPrinterAttempt(250000, 1) ) {
-        detectPrinter();
-    }
+    xTaskCreatePinnedToCore(deviceLoop, "DeviceTask", 
+        4096, nullptr, 1, &deviceTask, 1); // cpu1 
     
     job = Job::getJob();
 
@@ -151,10 +152,11 @@ const uint32_t serialBauds[] = { 115200, 250000, 57600 };    // Marlin valid bau
 
 bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
     for(uint8_t retry=0; retry<2; retry++) {
-        DEBUGF("attempt: %d\n", retry);
-        PrinterSerial.end();
-        PrinterSerial.begin(speed);
-        PrinterSerial.setTimeout(2000);
+        DEBUGF("attempt %d, speed %d, type %d\n", retry, speed, type);
+        //PrinterSerial.end();
+        //PrinterSerial.begin(speed);
+        PrinterSerial.updateBaudRate(speed);
+        while(PrinterSerial.available()) PrinterSerial.read();
         DeviceDetector::sendProbe(type, PrinterSerial);            
         String v = PrinterSerial.readStringUntil('\n'); v.trim();
         DEBUGF("Got response '%s'\n", v.c_str() );
@@ -174,13 +176,24 @@ bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
 void detectPrinter() {
     while(true) {
         for(uint32_t speed: serialBauds) {
-            DEBUGF("Trying speed: %d\n", speed);
             for(int type=0; type<DeviceDetector::N_TYPES; type++)
                 if(detectPrinterAttempt(speed, type)) return;
         }
-    }
+    }    
+    
 }
 
+void deviceLoop(void* pvParams) {
+    PrinterSerial.begin(115200);
+    PrinterSerial.setTimeout(2000);
+    if(! detectPrinterAttempt(250000, 1) ) {
+        detectPrinter();
+    }
+    while(1) {
+        dev->loop();
+    }
+    vTaskDelete( NULL );
+}
 
 void processPot() {
     //  center lines : 2660    3480    4095
@@ -242,10 +255,13 @@ void draw() {
         return;
     }
 
+    if(dev==nullptr) return;
+
     char str[100];
 
     u8g2.clearBuffer();
     
+
     snprintf(str, 100, "X: %.3f", dev->getX() );   u8g2.drawStr(10, 0, str ); 
     snprintf(str, 100, "Y: %.3f", dev->getX() );   u8g2.drawStr(10, 10, str ); 
     snprintf(str, 100, "Z: %.3f", dev->getX() );   u8g2.drawStr(10, 20, str ); 
@@ -267,14 +283,18 @@ void loop() {
 
     job->loop();
 
-    dev->loop();
-
     draw();
+
+    if(dev==nullptr) return;
 
     static String s;
     while(Serial.available()!=0) {
         char c = Serial.read();
-        if(c=='\n' || c=='\r') { if(s) dev->scheduleCommand(s); s=""; continue; }
+        if(c=='\n' || c=='\r') { 
+            if(s.length()>0) DEBUGF("send %s, result: %d\n", s.c_str(), dev->scheduleCommand(s) ); 
+            s=""; 
+            continue; 
+        }
         s += c;
     }
 

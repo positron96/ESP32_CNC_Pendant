@@ -6,16 +6,17 @@ void Job::setJob(Job* _job) { job = *_job; }
 
 Job * Job::getJob() { return &job; }
 
-#define J_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
-#define J_DEBUGS(s)  { Serial.println(s); }
+#define J_DEBUGF(...) // { Serial.printf(__VA_ARGS__); }
+#define J_DEBUGS(s) // { Serial.println(s); }
 
 
 void Job::loop() {
     if(!running || paused) return;
 
     GCodeDevice * dev = GCodeDevice::getDevice();
+    if(dev==nullptr) return;
 
-    if(dev->canSchedule()) {
+    if(dev->canSchedule(100)) {
         int rd;
         char cline[256];
         uint32_t len=0;

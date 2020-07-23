@@ -37,6 +37,7 @@ void DeviceDetector::sendProbe(uint8_t i, Stream &serial) {
 GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
     if(i==0) {
         if(v.indexOf("[VER:")!=-1 ) {
+            GD_DEBUGS("Detected GRBL device");
             //devices.grbl = GrblDevice(&serial);
             return new (deviceBuffer) GrblDevice(&serial);
             //return (GCodeDevice*)deviceBuffer;
@@ -44,6 +45,7 @@ GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
     }
     if(i==1) {
         if(v.indexOf("MACHINE_TYPE") != -1) {
+            GD_DEBUGS("Detected Marlin device");
             //devices.marlin = MarlinDevice(&serial);
             return new (deviceBuffer) MarlinDevice(&serial);
             //return (GCodeDevice*)deviceBuffer;
@@ -51,6 +53,7 @@ GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
     }
 
     return nullptr;
+
     //return false;
 }
 
@@ -60,20 +63,28 @@ GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
 
 
 void GrblDevice::sendCommands() {
+
     if(panic) return;
-    String command = commandQueue.peekUnsent();
-    if (command != "") {
-        bool r = commandQueue.canSend();
-        if(!r) {
-            GD_DEBUGF("Not sent, free space: %d\n", commandQueue.getRemoteFreeSpace());
-        } else {
-            GD_DEBUGF("Sent '%s', free space %d\n", command.c_str(), commandQueue.getRemoteFreeSpace());
-            printerSerial->print(command);  
-            printerSerial->print("\n");
-            commandQueue.markSent();
-            armRxTimeout();
-        }
+
+    const int LEN = 100;
+    char msg[LEN+1];
+
+    size_t l = xMessageBufferReceive(buf0, msg, LEN, 0);
+    if(l==0) l = xMessageBufferReceive(buf1, msg, LEN, 0);
+    if(l==0) return;
+
+    msg[l] = 0;
+    if(sentQueue.getFreeSlots()>=1 && sentQueue.getRemoteFreeSpace()>l+2) {
+        sentQueue.push( String(msg) );
+        sentQueue.markSent();
+        printerSerial->write(msg, l);  
+        printerSerial->print("\n");
+        armRxTimeout();
+        //GD_DEBUGF("Sent '%s', free space %d\n", msg, sentQueue.getRemoteFreeSpace() );
+    } else {
+        GD_DEBUGF("Not sent, free space: %d\n", sentQueue.getRemoteFreeSpace());
     }
+
 };
 
 void GrblDevice::receiveResponses() {
@@ -92,11 +103,11 @@ void GrblDevice::receiveResponses() {
             //DEBUGF("Got response %s\n", serialResponse.c_str() );
 
             if (resp.startsWith("ok", lineStartPos)) {
-                commandQueue.markAcknowledged();
+                sentQueue.markAcknowledged();
                 responseDetail = "ok";
             } else 
             if (resp.startsWith("error") ) {
-                commandQueue.markAcknowledged();
+                sentQueue.markAcknowledged();
                 responseDetail = "error";
                 DeviceError err = { 1 };
                 notify_observers(err); panic=true;
@@ -104,8 +115,8 @@ void GrblDevice::receiveResponses() {
             if ( resp.startsWith("<") ) {
                 parseGrblStatus(resp);
             }
-            GD_DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
-            updateRxTimeout();
+            //GD_DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
+            updateRxTimeout(sentQueue.hasUnacknowledged() );
             resp = "";
         }
     }
@@ -145,19 +156,25 @@ void GrblDevice::parseGrblStatus(String v) {
 
 
 void MarlinDevice::sendCommands() {
-    String command;
-    command = commandQueue.peekUnsent();
-    if (command != "") {
-        bool r = commandQueue.canSend();
-        if(!r) {
-            GD_DEBUGF("Not sent, free slots: %d\n", commandQueue.getFreeSlots() );
-        } else {
-            GD_DEBUGF("TX (free slots %d) '%s'\n", commandQueue.getFreeSlots(), command.c_str() );
-            printerSerial->print(command);  
-            printerSerial->print("\n");
-            commandQueue.markSent();
-            armRxTimeout();
-        }
+    if(panic) return;
+
+    const int LEN = 100;
+    char msg[LEN+1];
+
+    size_t l = xMessageBufferReceive(buf0, msg, LEN, 0);
+    if(l==0) l = xMessageBufferReceive(buf1, msg, LEN, 0);
+    if(l==0) return;
+
+    msg[l] = 0;
+    if(sentQueue.getFreeSlots()>=1 && sentQueue.getRemoteFreeSpace()>l+2) {
+        sentQueue.push( String(msg) );
+        sentQueue.markSent();
+        printerSerial->write(msg, l);  
+        printerSerial->print("\n");
+        armRxTimeout();
+        //GD_DEBUGF("Sent '%s', free space %d\n", msg, sentQueue.getRemoteFreeSpace() );
+    } else {
+        GD_DEBUGF("Not sent, free space: %d\n", sentQueue.getRemoteFreeSpace());
     }
 };
 
@@ -174,8 +191,8 @@ void MarlinDevice::receiveResponses() {
             resp += ch;
         else {
 
-            curCmd = commandQueue.peekUnacknowledged();
-            GD_DEBUGF("RX '%s'; current cmd %s\n", resp.c_str(), curCmd.c_str() );
+            curCmd = sentQueue.peekUnacknowledged();
+            //GD_DEBUGF("RX '%s'; current cmd %s\n", resp.c_str(), curCmd.c_str() );
 
             if (resp.startsWith("ok", lineStartPos)) {
 
@@ -185,7 +202,7 @@ void MarlinDevice::receiveResponses() {
                     autoreportTempEnabled = (curCmd[6] != '0');
                 
                 responseDetail = "OK, ack '"+curCmd+"'";
-                commandQueue.markAcknowledged();     // Go on with next command
+                sentQueue.markAcknowledged();     // Go on with next command
                 connected = true;
             } else if (connected) {
                 if(curCmd == "M115") {
@@ -216,8 +233,9 @@ void MarlinDevice::receiveResponses() {
                 responseDetail = "discovering";
             }
             
-            GD_DEBUGF("free slots: %d type:'%s' \n", commandQueue.getFreeSlots(),  responseDetail.c_str()  );
-            updateRxTimeout();
+            //GD_DEBUGF("free slots: %d type:'%s' \n", commandQueue.getFreeSlots(),  responseDetail.c_str()  );
+            
+            updateRxTimeout(sentQueue.hasUnacknowledged() );
             resp = "";
         }
     }
@@ -246,9 +264,9 @@ bool MarlinDevice::parseTemperatures(const String &response) {
         ret |= extractPrusaHeatingTemp(response, "B", bedTemperature.actual);
     }
 
-    /*if(ret) GD_DEBUGF("Parsed temp E:%d->%d  B:%d->%d\n", 
+    if(ret) GD_DEBUGF("Parsed temp E:%d->%d  B:%d->%d\n", 
         (int)toolTemperatures[0].actual, (int)toolTemperatures[0].target,  
-        (int)bedTemperature.actual, (int)bedTemperature.target );*/
+        (int)bedTemperature.actual, (int)bedTemperature.target );
     return ret;
 }
 
@@ -285,7 +303,7 @@ bool MarlinDevice::parsePosition(const String &str) {
     if(!isnan(t) ) z = t; else return false;
     t = extractFloat(str, "E:");
     if(!isnan(t) ) ePos = t; else return false;
-    //GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
+    GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
     return true;
 }
 
@@ -296,8 +314,8 @@ bool MarlinDevice::parseM115(const String &str) {
     fwAutoreportTempCap = extractM115Bool(str, "Cap:AUTOREPORT_TEMP");
     fwProgressCap = extractM115Bool(str, "Cap:PROGRESS");
     fwBuildPercentCap = extractM115Bool(str, "Cap:BUILD_PERCENT");
-    //GD_DEBUGF("Parsed M115: desc=%s, extruders:%d, autotemp:%d, progress:%d, buildPercent:%d\n", 
-    //    desc.c_str(), fwExtruders, fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap );
+    GD_DEBUGF("Parsed M115: desc=%s, extruders:%d, autotemp:%d, progress:%d, buildPercent:%d\n", 
+        desc.c_str(), fwExtruders, fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap );
     return true;
 }
 

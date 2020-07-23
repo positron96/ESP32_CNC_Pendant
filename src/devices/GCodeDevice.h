@@ -2,7 +2,11 @@
 
 #include <Arduino.h>
 #include <etl/observer.h>
+//#include <etl/queue.h>
 #include "CommandQueue.h"
+#include <message_buffer.h>
+
+
 
 #define GD_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
 #define GD_DEBUGS(s)  { Serial.println(s); }
@@ -22,21 +26,31 @@ public:
     static GCodeDevice *getDevice();
     static void setDevice(GCodeDevice *dev);
 
-    GCodeDevice(Stream * s): printerSerial(s), connected(false)  {}
+    GCodeDevice(Stream * s, size_t priorityBufSize=0, size_t bufSize=0): printerSerial(s), connected(false)  {
+        if(priorityBufSize!=0) buf0 = xMessageBufferCreate(priorityBufSize);
+        if(bufSize!=0) buf1 = xMessageBufferCreate(bufSize);
+    }
     GCodeDevice() : printerSerial(nullptr), connected(false) {}
     virtual ~GCodeDevice() { clear_observers(); }
 
-    virtual void begin() { connected=true; };
+    virtual void begin() { 
+        while(printerSerial->available()>0) printerSerial->read(); 
+        connected=true; 
+    };
 
     virtual bool scheduleCommand(String cmd) {
         if(panic) return false;
-        return queue->push(cmd);
+        if(!buf1) return false;
+        if(cmd.length()==0) return true;
+        return xMessageBufferSend(buf1, cmd.c_str(), cmd.length(), 0) != 0;
     };
     virtual bool schedulePriorityCommand(String cmd) { 
         if(panic) return false;
-        return queue->pushPriority(cmd);
+        if(!buf0) return false;
+        if(cmd.length()==0) return true;
+        return xMessageBufferSend(buf0, cmd.c_str(), cmd.length(), 0) != 0;
     } ;
-    virtual bool canSchedule() { return queue->getFreeSlots()>0; }
+    virtual bool canSchedule(size_t len) { if(!buf1) return false; else return xMessageBufferSpaceAvailable(buf1) > len; }
 
     virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
 
@@ -79,8 +93,8 @@ protected:
     void disarmRxTimeout() {        
         serialRxTimeout=0; 
     };
-    void updateRxTimeout() {
-        if(isRxTimeoutEnabled() ) { if(queue->allAcknowledged()) disarmRxTimeout(); else armRxTimeout(); }
+    void updateRxTimeout(bool waitingMore) {
+        if(isRxTimeoutEnabled() ) { if(!waitingMore) disarmRxTimeout(); else armRxTimeout(); }
     }
 
     bool isRxTimeoutEnabled() { return serialRxTimeout!=0; }
@@ -95,12 +109,14 @@ protected:
         }
     }
 
-    virtual void cleanupQueue() { queue->clear(); }
+    virtual void cleanupQueue() { if(buf1) xMessageBufferReset(buf1); if(buf0) xMessageBufferReset(buf0); }
 
     float x,y,z;
     bool panic = false;
     uint32_t nextStatusRequestTime;
-    AbstractQueue *queue;
+    //AbstractQueue *queue;
+    MessageBufferHandle_t  buf0;
+    MessageBufferHandle_t  buf1;
 
 private:
     static GCodeDevice *device;
@@ -112,7 +128,7 @@ private:
 class GrblDevice : public GCodeDevice {
 public:
 
-    GrblDevice(Stream * s): GCodeDevice(s) { queue=&commandQueue; desc = "Grbl"; };
+    GrblDevice(Stream * s): GCodeDevice(s, 1000, 100) { desc = "Grbl"; };
     GrblDevice() : GCodeDevice() {desc = "Grbl";}
 
     virtual ~GrblDevice() {}
@@ -148,7 +164,8 @@ public:
     }
     
 private:
-    DoubleCommandQueue<16, 100, 3> commandQueue;
+    //DoubleCommandQueue<16, 100, 3> commandQueue;
+    CommandQueue<16,100> sentQueue;
 
     uint32_t nextPosRequestTime;
     
@@ -165,7 +182,7 @@ class MarlinDevice: public GCodeDevice {
 
 public:
 
-    MarlinDevice(Stream * s): GCodeDevice(s) { queue=&commandQueue; desc="Marlin"; }
+    MarlinDevice(Stream * s): GCodeDevice(s, 1000, 100) { desc="Marlin"; }
     MarlinDevice() : GCodeDevice() {desc = "Marlin";}
 
     virtual ~MarlinDevice() {}
@@ -173,7 +190,7 @@ public:
     virtual bool jog(uint8_t axis, float dist, int feed) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z', 'E'};
         char msg[81]; snprintf(msg, 81, "G0 F%d %c%04f", feed, AXIS[axis], dist);
-        if(commandQueue.getFreeSlots() < 3) return false;
+        if(  xMessageBufferSpacesAvailable(buf1)>strlen(msg)+6+4 ) return false;
         schedulePriorityCommand("G91");
         schedulePriorityCommand(msg);
         schedulePriorityCommand("G90");
@@ -218,7 +235,9 @@ private:
 
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
-    DoubleCommandQueue<30, 0, 2> commandQueue;
+    //DoubleCommandQueue<30, 0, 2> commandQueue;
+    CommandQueue<30,128> sentQueue;
+
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
     bool autoreportTempEnabled;

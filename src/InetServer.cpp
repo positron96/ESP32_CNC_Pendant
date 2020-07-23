@@ -268,26 +268,30 @@ void WebServer::registerOptoPrintApi() {
                 "      \"ready\": " + readyState + ",\r\n"
                 "      \"closedOrError\": " + stringify(!connected) + "\r\n"
                 "    }\r\n"
-                "  },\r\n"
+                "  },\r\n";
+                
+        if(dev!=nullptr) {
+            message +=
                 "  \"temperature\": {\r\n";
+            for (int t = 0; t < dev->getExtruderCount(); ++t) message += 
+                "    \"tool" + String(t) + "\": {\r\n"
+                "      \"actual\": " + String(dev->getExtruderTemp(t).actual) + ",\r\n"
+                "      \"target\": " + String(dev->getExtruderTemp(t).target) + ",\r\n"
+                "      \"offset\": 0\r\n"
+                "    },\r\n";
         
-        for (int t = 0; t < dev->getExtruderCount(); ++t) {
-            message += "    \"tool" + String(t) + "\": {\r\n"
-                    "      \"actual\": " + String(dev->getExtruderTemp(t).actual) + ",\r\n"
-                    "      \"target\": " + String(dev->getExtruderTemp(t).target) + ",\r\n"
-                    "      \"offset\": 0\r\n"
-                    "    },\r\n";
-        }
-        message += "    \"bed\": {\r\n"
+            message +=  
+                "    \"bed\": {\r\n"
                 "      \"actual\": " + String(dev->getBedTemp().actual) + ",\r\n"
                 "      \"target\": " + String(dev->getBedTemp().target) + ",\r\n"
                 "      \"offset\": 0\r\n"
                 "    }\r\n"
-                "  }\r\n"
-                //"  \"sd\": {\r\n"
-                //"    \"ready\": false\r\n"
-                //"  }\r\n"
+                "  },\r\n";
+        }
+        message +=    
+                "  \"sd\": { \"ready\": false }\r\n"
                 "}";
+            
         request->send(200, "application/json", message);
     });
 
