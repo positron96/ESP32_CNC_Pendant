@@ -9,6 +9,23 @@ Job * Job::getJob() { return &job; }
 #define J_DEBUGF(...) // { Serial.printf(__VA_ARGS__); }
 #define J_DEBUGS(s) // { Serial.println(s); }
 
+void Job::readNextLine() {
+    if(gcodeFile.available()==0) { 
+        running = false; 
+        return; 
+    }
+    while( gcodeFile.available()>0 ) {
+        int rd = gcodeFile.read();
+        filePos++;
+        if(rd=='\n' || rd=='\r') {
+            if(curLinePos!=0) break; // if it's an empty string of LF after last CR, just continue reading
+        } else {
+            if(curLinePos<MAX_LINE) curLine[curLinePos++] = rd;
+            else { running = false; break; }
+        }
+    }
+    curLine[curLinePos]=0;
+}
 
 void Job::loop() {
     if(!running || paused) return;
@@ -16,31 +33,21 @@ void Job::loop() {
     GCodeDevice * dev = GCodeDevice::getDevice();
     if(dev==nullptr) return;
 
-    if(dev->canSchedule(100)) {
-        int rd;
-        char cline[256];
-        uint32_t len=0;
-        while( gcodeFile.available() ) {
-            rd = gcodeFile.read();
-            if(rd=='\n' || rd=='\r') break;
-            cline[len++] = rd;
-        }        
-        if(gcodeFile.available()==0) running = false;
-        filePos = fileSize - gcodeFile.available();
+    if(curLinePos==0) readNextLine();
+    if(!running) return;
+    
+    
+    if(dev->canSchedule(curLinePos)) {
 
-        cline[len]=0;
+        J_DEBUGF("popped line '%s', len %d\n", curLine, curLinePos );
 
-        if(len==0) return;
+        char* pos = strchr(curLine, ';');
+        if(pos!=NULL) *pos = 0; //line = line.substring(0, pos);
 
-        String line(cline);
-        J_DEBUGF("popped line '%s', len %d\n", line.c_str(), len );
+        dev->scheduleCommand(curLine, curLinePos);
 
-        int pos = line.indexOf(';');
-        if(pos!=-1) line = line.substring(0, pos);
-
-        if(line.length()==0) return;
-
-        dev->scheduleCommand(line);
+        curLinePos = 0;
 
     }
+
 }

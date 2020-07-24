@@ -283,9 +283,15 @@ void loop() {
 
     job->loop();
 
-    draw();
+    //draw();
 
     if(dev==nullptr) return;
+
+    static uint32_t nextSent;
+    if(nextSent < millis()) {
+        DEBUGF("queue: %d, sent: %d\n", dev->getQueueLength(), dev->getSentQueueLength() );
+        nextSent = millis()+1000;
+    }
 
     static String s;
     while(Serial.available()!=0) {

@@ -29,6 +29,8 @@ public:
     GCodeDevice(Stream * s, size_t priorityBufSize=0, size_t bufSize=0): printerSerial(s), connected(false)  {
         if(priorityBufSize!=0) buf0 = xMessageBufferCreate(priorityBufSize);
         if(bufSize!=0) buf1 = xMessageBufferCreate(bufSize);
+        buf0Len = bufSize;
+        buf1Len = priorityBufSize;
     }
     GCodeDevice() : printerSerial(nullptr), connected(false) {}
     virtual ~GCodeDevice() { clear_observers(); }
@@ -43,6 +45,12 @@ public:
         if(!buf1) return false;
         if(cmd.length()==0) return true;
         return xMessageBufferSend(buf1, cmd.c_str(), cmd.length(), 0) != 0;
+    };
+    virtual bool scheduleCommand(char* cmd, size_t len) {
+        if(panic) return false;
+        if(!buf1) return false;
+        if(len==0) return true;
+        return xMessageBufferSend(buf1, cmd, len, 0) != 0;
     };
     virtual bool schedulePriorityCommand(String cmd) { 
         if(panic) return false;
@@ -79,12 +87,20 @@ public:
 
     String getDescrption() { return desc; }
 
+    size_t getQueueLength() {  
+        return (  buf0Len - xMessageBufferSpaceAvailable(buf0)  ) + 
+            (  buf1Len - xMessageBufferSpaceAvailable(buf1)  ); 
+    }
+
+    virtual size_t getSentQueueLength() { return 0; }
+
 protected:
     Stream * printerSerial;
 
     uint32_t serialRxTimeout;
     bool connected;
     String desc;
+    size_t buf0Len, buf1Len;
 
     void armRxTimeout() {
         //GD_DEBUGLN(enable ? "GCodeDevice::resetRxTimeout enable" : "GCodeDevice::resetRxTimeout disable");
@@ -120,6 +136,8 @@ protected:
 
 private:
     static GCodeDevice *device;
+
+    friend void loop();
 
 };
 
@@ -182,7 +200,10 @@ class MarlinDevice: public GCodeDevice {
 
 public:
 
-    MarlinDevice(Stream * s): GCodeDevice(s, 1000, 100) { desc="Marlin"; }
+    MarlinDevice(Stream * s): GCodeDevice(s, 1000, 100) { 
+        desc="Marlin"; 
+        sentQueue = xMessageBufferCreate(MAX_SENT_BYTES);
+    }
     MarlinDevice() : GCodeDevice() {desc = "Marlin";}
 
     virtual ~MarlinDevice() {}
@@ -190,7 +211,7 @@ public:
     virtual bool jog(uint8_t axis, float dist, int feed) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z', 'E'};
         char msg[81]; snprintf(msg, 81, "G0 F%d %c%04f", feed, AXIS[axis], dist);
-        if(  xMessageBufferSpacesAvailable(buf1)>strlen(msg)+6+4 ) return false;
+        if(  xMessageBufferSpacesAvailable(buf1)>strlen(msg)+3+3+6 ) return false;
         schedulePriorityCommand("G91");
         schedulePriorityCommand(msg);
         schedulePriorityCommand("G90");
@@ -222,6 +243,8 @@ public:
         }
     }
 
+    virtual size_t getSentQueueLength();
+
     struct Temperature {
         float actual;
         float target;
@@ -235,8 +258,14 @@ private:
 
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
+    static const size_t MAX_SENT_BYTES = 1000;
+    static const size_t MAX_SENT_LINES = 32;
+
     //DoubleCommandQueue<30, 0, 2> commandQueue;
-    CommandQueue<30,128> sentQueue;
+    //CommandQueue<30,128> sentQueue;
+    MessageBufferHandle_t sentQueue;
+    size_t freeSize = MAX_SENT_BYTES;
+    size_t freeLines = MAX_SENT_LINES;
 
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;

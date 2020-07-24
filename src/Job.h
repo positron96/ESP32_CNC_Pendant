@@ -52,10 +52,15 @@ private:
     uint32_t fileSize;
     uint32_t filePos;
     uint32_t startTime;
+    static const int MAX_LINE = 100;
+    char curLine[MAX_LINE+1];
+    size_t curLinePos;
 
     //float percentage = 0;
     bool running;
     bool paused;
+
+    void readNextLine();
 
 
     static Job job;

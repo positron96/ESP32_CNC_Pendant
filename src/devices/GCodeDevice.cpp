@@ -78,7 +78,7 @@ void GrblDevice::sendCommands() {
         sentQueue.push( String(msg) );
         sentQueue.markSent();
         printerSerial->write(msg, l);  
-        printerSerial->print("\n");
+        printerSerial->print('\n');
         armRxTimeout();
         //GD_DEBUGF("Sent '%s', free space %d\n", msg, sentQueue.getRemoteFreeSpace() );
     } else {
@@ -153,7 +153,9 @@ void GrblDevice::parseGrblStatus(String v) {
 #define TEMP_COMMAND      "M105"
 #define AUTOTEMP_COMMAND  "M155 S"
 
-
+size_t MarlinDevice::getSentQueueLength() {
+    return MAX_SENT_BYTES - freeSize;
+}
 
 void MarlinDevice::sendCommands() {
     if(panic) return;
@@ -166,77 +168,106 @@ void MarlinDevice::sendCommands() {
     if(l==0) return;
 
     msg[l] = 0;
-    if(sentQueue.getFreeSlots()>=1 && sentQueue.getRemoteFreeSpace()>l+2) {
-        sentQueue.push( String(msg) );
-        sentQueue.markSent();
+    if(freeSize >= l+1 && freeLines >= 1) {
+        //sentQueue.push( String(msg) );
+        //sentQueue.markSent();
+        xMessageBufferSend(sentQueue, msg, l, 0);
+        freeSize -= l+1;
+        freeLines --;
+
         printerSerial->write(msg, l);  
-        printerSerial->print("\n");
+        printerSerial->print('\n');
         armRxTimeout();
         //GD_DEBUGF("Sent '%s', free space %d\n", msg, sentQueue.getRemoteFreeSpace() );
     } else {
-        GD_DEBUGF("Not sent, free space: %d\n", sentQueue.getRemoteFreeSpace());
+        GD_DEBUGF("Not sent, free lines: %d, free space: %d\n", freeLines, freeSize );
     }
 };
 
+bool startsWith(const char *str, const char *pre) {
+    return strncmp(pre, str, strlen(pre)) == 0;
+}
+
 void MarlinDevice::receiveResponses() {
 
-    static int lineStartPos = 0;
-    static String resp;
-    String responseDetail;
-    String curCmd;
+    //static int lineStartPos = 0;
+    //static String resp;
+    static const size_t MAX_LINE = 100;
+    static char resp[MAX_LINE+1];
+    static size_t respLen;
+    char responseDetail[MAX_LINE];
+    //String curCmd;
+    static char curCmd[MAX_LINE+1];
+    static size_t curCmdLen;
+
 
     while (printerSerial->available()) {
         char ch = (char)printerSerial->read();
-        if (ch != '\n')
-            resp += ch;
-        else {
+        if (ch!='\n' && ch!='\r') {
+            if(respLen<MAX_LINE) resp[respLen++] = ch;
+        }
+        if(ch=='\n') {
+            resp[respLen]=0;
 
-            curCmd = sentQueue.peekUnacknowledged();
-            //GD_DEBUGF("RX '%s'; current cmd %s\n", resp.c_str(), curCmd.c_str() );
+            if(curCmdLen==0) {
+                curCmdLen = xMessageBufferReceive(sentQueue, curCmd, MAX_LINE, 0);
+            }
+            // curCmdLen can be 0 here, it means that there is not cmd awaiting
+            curCmd[curCmdLen]=0; // for string operations
 
-            if (resp.startsWith("ok", lineStartPos)) {
+            //curCmd = sentQueue.peekUnacknowledged();
+            GD_DEBUGF("RX '%s'; current cmd %s\n", resp, curCmd );
 
-                if (curCmd.startsWith(TEMP_COMMAND))
-                    parseTemperatures(resp);
-                else if (fwAutoreportTempCap && curCmd.startsWith(AUTOTEMP_COMMAND))
+            if ( startsWith(resp, "ok") ) {
+
+                if (startsWith(curCmd, TEMP_COMMAND))
+                    parseTemperatures(String(resp) );
+                else if (fwAutoreportTempCap && startsWith(curCmd, AUTOTEMP_COMMAND))
                     autoreportTempEnabled = (curCmd[6] != '0');
                 
-                responseDetail = "OK, ack '"+curCmd+"'";
-                sentQueue.markAcknowledged();     // Go on with next command
+                snprintf(responseDetail, MAX_LINE, "OK, acking '%s'", curCmd);
+                //sentQueue.markAcknowledged();     // Go on with next command
+                freeSize += curCmdLen+1;
+                freeLines ++;
+
+                curCmdLen = 0; // need to fetch another sent command from queue
+
                 connected = true;
-            } else if (connected) {
-                if(curCmd == "M115") {
-                    parseM115(resp); responseDetail = "status";
-                } else if (parseTemperatures(resp))
-                    responseDetail = "autotemp";
-                else if (parsePosition(resp) )
-                    responseDetail = "position";
-                else if (resp.startsWith("echo:busy"))
-                    responseDetail = "busy";
-                else if (resp.startsWith("echo: cold extrusion prevented")) {
-                    // To do: Pause sending gcode, or do something similar
-                    responseDetail = "cold extrusion";
-                    DeviceError err = { 1 };
-                    notify_observers(err); 
-                }
-                else if (resp.startsWith("Error:")) {
-                    responseDetail = "ERROR";
-                    DeviceError err = { 1 };
-                    notify_observers(err); 
-                }
-                else {
-                    //incompleteResponse = true;
-                    responseDetail = "wait more";
-                }
             } else {
-                //incompleteResponse = true;
-                responseDetail = "discovering";
+                if (connected) {
+                    if(startsWith(curCmd,"M115") ) {
+                        parseM115(String(resp) ); sprintf(responseDetail, "status");
+                    } else if (parseTemperatures(String(resp) ) )
+                        sprintf(responseDetail, "autotemp");
+                    else if (parsePosition(String(resp) ) )
+                        sprintf(responseDetail, "position");
+                    else if (startsWith(resp, "echo:busy"))
+                        sprintf(responseDetail, "busy");
+                    else if (startsWith(resp, "echo: cold extrusion prevented")) {
+                        // To do: Pause sending gcode, or do something similar
+                        sprintf(responseDetail, "cold extrusion");
+                        DeviceError err = { 1 };
+                        notify_observers(err); 
+                    }
+                    else if (startsWith(resp, "Error:") ) {
+                        sprintf(responseDetail, "ERROR");
+                        DeviceError err = { 1 };
+                        notify_observers(err); 
+                    }
+                    else {
+                        //incompleteResponse = true;
+                        sprintf(responseDetail, "incomplete");
+                    }
+                } else {
+                    //incompleteResponse = true;
+                    sprintf(responseDetail, "discovering");
+                }
             }
             
-            //GD_DEBUGF("free slots: %d type:'%s' \n", commandQueue.getFreeSlots(),  responseDetail.c_str()  );
-            
-            updateRxTimeout(sentQueue.hasUnacknowledged() );
-            resp = "";
+            GD_DEBUGF("free slots: %d type:'%s' \n", freeLines,  responseDetail  );
+            size_t usedLines = MAX_SENT_LINES-freeLines;
+            updateRxTimeout( usedLines>0 );
+            respLen = 0;
         }
     }
 
