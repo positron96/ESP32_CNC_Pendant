@@ -71,6 +71,19 @@ struct StreamBufferDef_t;
 typedef struct StreamBufferDef_t * StreamBufferHandle_t;
 
 
+
+typedef struct xSTATIC_STREAM_BUFFER
+{
+	size_t uxDummy1[ 4 ];
+	void * pvDummy2[ 3 ];
+	uint8_t ucDummy3;
+	#if ( configUSE_TRACE_FACILITY == 1 )
+		UBaseType_t uxDummy4;
+	#endif
+} StaticStreamBuffer_t;
+
+typedef StaticStreamBuffer_t StaticMessageBuffer_t;
+
 /**
  * message_buffer.h
  *

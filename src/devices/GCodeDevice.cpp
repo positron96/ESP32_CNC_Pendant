@@ -154,33 +154,42 @@ void GrblDevice::parseGrblStatus(String v) {
 #define AUTOTEMP_COMMAND  "M155 S"
 
 size_t MarlinDevice::getSentQueueLength() {
-    return MAX_SENT_BYTES - freeSize;
+    return sentQueue.bytes();
 }
 
 void MarlinDevice::sendCommands() {
     if(panic) return;
+    bool loadedNewCmd=false;
 
-    const int LEN = 100;
-    char msg[LEN+1];
+    static size_t nline=0;
 
-    size_t l = xMessageBufferReceive(buf0, msg, LEN, 0);
-    if(l==0) l = xMessageBufferReceive(buf1, msg, LEN, 0);
-    if(l==0) return;
+    if(curUnsentCmdLen==0) {
+        char tmp[MAX_GCODE_LINE+1];
+        curUnsentCmdLen = xMessageBufferReceive(buf0, tmp, MAX_GCODE_LINE, 0);
+        if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, tmp, MAX_GCODE_LINE, 0);
+        //curUnsentCmdLen = xMessageBufferReceive(buf0, curUnsentCmd, MAX_GCODE_LINE, 0);
+        //if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, curUnsentCmd, MAX_GCODE_LINE, 0);
+        loadedNewCmd=true;
+        if(curUnsentCmdLen!=0) {
+            tmp[curUnsentCmdLen] = 0;
+            snprintf(curUnsentCmd, MAX_GCODE_LINE, "%s ;%d", tmp, nline++);
+            curUnsentCmdLen = strlen(curUnsentCmd);
+        }
+        //snprintf(curUnsentCmd, MAX_GCODE_LINE, "%s", tmp);
+    }
+    if(curUnsentCmdLen==0) return;
+    
+    curUnsentCmd[curUnsentCmdLen] = 0;
 
-    msg[l] = 0;
-    if(freeSize >= l+1 && freeLines >= 1) {
-        //sentQueue.push( String(msg) );
-        //sentQueue.markSent();
-        xMessageBufferSend(sentQueue, msg, l, 0);
-        freeSize -= l+1;
-        freeLines --;
-
-        printerSerial->write(msg, l);  
+    if( sentQueue.canPush(curUnsentCmdLen) ) {
+        sentQueue.push( curUnsentCmd, curUnsentCmdLen );
+        printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
         printerSerial->print('\n');
         armRxTimeout();
-        //GD_DEBUGF("Sent '%s', free space %d\n", msg, sentQueue.getRemoteFreeSpace() );
+        curUnsentCmdLen = 0;
+        GD_DEBUGF("<  (%3d) '%s'\n", sentQueue.getFreeLines(), curUnsentCmd );
     } else {
-        GD_DEBUGF("Not sent, free lines: %d, free space: %d\n", freeLines, freeSize );
+        //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
     }
 };
 
@@ -192,14 +201,10 @@ void MarlinDevice::receiveResponses() {
 
     //static int lineStartPos = 0;
     //static String resp;
-    static const size_t MAX_LINE = 100;
+    static const size_t MAX_LINE = 200; // M115 is far longer than 100
     static char resp[MAX_LINE+1];
     static size_t respLen;
     char responseDetail[MAX_LINE];
-    //String curCmd;
-    static char curCmd[MAX_LINE+1];
-    static size_t curCmdLen;
-
 
     while (printerSerial->available()) {
         char ch = (char)printerSerial->read();
@@ -209,14 +214,12 @@ void MarlinDevice::receiveResponses() {
         if(ch=='\n') {
             resp[respLen]=0;
 
-            if(curCmdLen==0) {
-                curCmdLen = xMessageBufferReceive(sentQueue, curCmd, MAX_LINE, 0);
-            }
-            // curCmdLen can be 0 here, it means that there is not cmd awaiting
-            curCmd[curCmdLen]=0; // for string operations
+            char tmp = 0;
+            char* curCmd;
+            size_t curCmdLen = sentQueue.peek(curCmd);
+            if(curCmdLen==0) curCmd = &tmp;
 
-            //curCmd = sentQueue.peekUnacknowledged();
-            GD_DEBUGF("RX '%s'; current cmd %s\n", resp, curCmd );
+            //GD_DEBUGF(" > '%s'; current cmd %s\n", resp, curCmd );
 
             if ( startsWith(resp, "ok") ) {
 
@@ -224,13 +227,15 @@ void MarlinDevice::receiveResponses() {
                     parseTemperatures(String(resp) );
                 else if (fwAutoreportTempCap && startsWith(curCmd, AUTOTEMP_COMMAND))
                     autoreportTempEnabled = (curCmd[6] != '0');
+                else if(startsWith(curCmd, "G0") || startsWith(curCmd, "G1")) {
+                    parseG0G1(curCmd); // artificial position from G0/G1 command
+                }
                 
-                snprintf(responseDetail, MAX_LINE, "OK, acking '%s'", curCmd);
+                snprintf(responseDetail, MAX_LINE, "ACK");
                 //sentQueue.markAcknowledged();     // Go on with next command
-                freeSize += curCmdLen+1;
-                freeLines ++;
-
-                curCmdLen = 0; // need to fetch another sent command from queue
+                sentQueue.pop();
+                
+                //curCmdLen = 0; // need to fetch another sent command from queue
 
                 connected = true;
             } else {
@@ -241,8 +246,10 @@ void MarlinDevice::receiveResponses() {
                         sprintf(responseDetail, "autotemp");
                     else if (parsePosition(String(resp) ) )
                         sprintf(responseDetail, "position");
-                    else if (startsWith(resp, "echo:busy"))
-                        sprintf(responseDetail, "busy");
+                    /*else if (startsWith(resp, "Resend: ")) {
+                        nline = (int)extractFloat(resp, "Resend:");
+                        sprintf(responseDetail, "sync line=%d", nline);
+                    }*/
                     else if (startsWith(resp, "echo: cold extrusion prevented")) {
                         // To do: Pause sending gcode, or do something similar
                         sprintf(responseDetail, "cold extrusion");
@@ -263,10 +270,10 @@ void MarlinDevice::receiveResponses() {
                     sprintf(responseDetail, "discovering");
                 }
             }
-            
-            GD_DEBUGF("free slots: %d type:'%s' \n", freeLines,  responseDetail  );
-            size_t usedLines = MAX_SENT_LINES-freeLines;
-            updateRxTimeout( usedLines>0 );
+
+            GD_DEBUGF(" > (%3d) '%s' current cmd '%s', desc:'%s'\n", sentQueue.getFreeLines(), resp, curCmd, responseDetail );
+            //GD_DEBUGF("   free slots: %d type:'%s' \n", sentQueue.getFreeLines(),  responseDetail  );
+            updateRxTimeout( sentQueue.size()>0 );
             respLen = 0;
         }
     }
@@ -338,6 +345,21 @@ bool MarlinDevice::parsePosition(const String &str) {
     return true;
 }
 
+// Parse position responses from printer like
+// X:-33.00 Y:-10.00 Z:5.00 E:37.95 Count X:-3300 Y:-1000 Z:2000
+bool MarlinDevice::parseG0G1(const char *str) {
+    float t = extractFloat(str, "X");
+    if(!isnan(t) ) x = t; else return false;
+    t = extractFloat(str, "Y");
+    if(!isnan(t) ) y = t; else return false;
+    t = extractFloat(str, "Z");
+    if(!isnan(t) ) z = t; else return false;
+    t = extractFloat(str, "E");
+    if(!isnan(t) ) ePos = t; else return false;
+    GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
+    return true;
+}
+
 bool MarlinDevice::parseM115(const String &str) {
     desc = extractM115String(str, "FIRMWARE_NAME") + " " + extractM115String(str, "MACHINE_TYPE");
     String value = extractM115String(str, "EXTRUDER_COUNT");
@@ -357,6 +379,13 @@ bool MarlinDevice::isFloat(const String value) {
         if (ch != ' ' && ch != '.' && ch != '-' && !isDigit(ch)) return false;
     }
     return true;
+}
+
+inline float MarlinDevice::extractFloat(const char *str, const char * key) {
+    char* s = strstr(str, key);
+    if(s==NULL) return NAN; 
+    s += strlen(key);
+    return atof(s);
 }
 
 inline float MarlinDevice::extractFloat(const String &str, const String key) {

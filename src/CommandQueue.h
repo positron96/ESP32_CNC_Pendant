@@ -2,6 +2,114 @@
 
 
 #include <Arduino.h>
+#include <message_buffer.h>
+
+template< uint8_t LEN_LINES = 16, uint16_t LEN_BYTES = 0, uint16_t MAX_LINE_LEN = 100 >
+class SizedQueue {
+public:
+    SizedQueue() {
+        freeLines = LEN_LINES;
+        freeBytes = LEN_BYTES;
+        buf = xMessageBufferCreateStatic(LEN_BYTES, data, &bufStruct);
+    }
+
+    void clear() {
+        xMessageBufferReset(buf);
+        havePeekedLine = false;
+        peekedLineLen = 0;
+        freeLines = LEN_LINES;
+        freeBytes = LEN_BYTES;
+    }
+
+    bool canPush(size_t len) const {
+        if(len>MAX_LINE_LEN) len = MAX_LINE_LEN;
+        return freeBytes>len && freeLines>0;
+    }
+
+    bool push(char* msg, size_t len)  {
+        if(!canPush(len)) return false;
+        if(len>MAX_LINE_LEN) len = MAX_LINE_LEN;
+        xMessageBufferSend(buf, msg, len, 0);
+        freeLines --;
+        freeBytes -= len+1;
+        return true;
+    }
+
+    inline size_t size() const {
+        return LEN_LINES-freeLines;
+    }
+
+    inline size_t getFreeLines() const {
+        return freeLines;
+    }
+
+    inline size_t bytes() const {
+        return LEN_BYTES-freeBytes;
+    }
+
+    inline size_t getFreeBytes() const {
+        return freeBytes;
+    }
+
+    size_t peek(char* &msg) {
+        if(size() == 0) return 0;
+        if(!havePeekedLine) {
+            loadLineFromBuf();
+        }
+        //len = peekedLineLen;
+        msg = peekedLine;
+        return peekedLineLen;
+    }
+
+    size_t pop(char * msg, size_t maxLen ) {
+        if(size() == 0) return 0;
+        if(!havePeekedLine) {
+            loadLineFromBuf();
+        }
+        size_t ret = peekedLineLen;
+        size_t minLen = std::min(maxLen, peekedLineLen);
+        memcpy( msg, peekedLine, minLen );
+        msg[minLen] = 0;
+        freeLines++;
+        freeBytes+=peekedLineLen+1;
+        havePeekedLine = false;
+        peekedLineLen = 0;
+        return ret;
+    }
+
+    void pop() {
+        if(size() == 0) return;
+        freeLines ++;
+        if(havePeekedLine) {
+            freeBytes += peekedLineLen+1;
+            havePeekedLine = false;
+            peekedLineLen = 0;
+        } else {
+            size_t r = xMessageBufferReceive(buf, peekedLine, MAX_LINE_LEN, 0);
+            freeBytes += r+1;
+        }
+
+    }
+
+
+private:
+    MessageBufferHandle_t buf;
+    StaticMessageBuffer_t bufStruct;
+    uint8_t data[LEN_BYTES];
+
+    size_t freeLines;
+    size_t freeBytes;
+    char peekedLine[MAX_LINE_LEN+1];
+    size_t peekedLineLen;
+    bool havePeekedLine;
+
+    bool loadLineFromBuf() {
+        peekedLineLen = xMessageBufferReceive(buf, peekedLine, MAX_LINE_LEN, 0);
+        havePeekedLine = peekedLineLen>0;
+        peekedLine[peekedLineLen]=0;
+        return havePeekedLine;
+    }
+};
 
 class AbstractQueue {
 public:

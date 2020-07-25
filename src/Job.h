@@ -5,6 +5,25 @@
 
 #include "devices/GCodeDevice.h"
 
+/**
+ * State diagram:
+ * ```
+ * non valid   <-------------------+
+ *    |                            |
+ *    | (.setFile)                 |
+ *    v                            |
+ *   valid ------------------------+
+ *    |                            | 
+ *    | (.start)                   | (ancel)
+ *    v                            | EOF
+ *   running ----------------------+
+ *    |              ^             |
+ *    | (.pause)     | (.resume)   |
+ *    v              |             |
+ *   running&paused -+-------------+
+ *    
+ * ```
+ */
 class Job : public DeviceObserver {
 
 public:
@@ -26,8 +45,8 @@ public:
     }
 
     void notification(const DeviceError& err)  {
-        Serial.println("ERR!!!");
-        running = false;
+        Serial.println("Cought device error!!!");
+        cancel();
     }
 
     void start() { startTime = millis();  running = true;  }
@@ -61,6 +80,7 @@ private:
     bool paused;
 
     void readNextLine();
+    bool scheduleNextCommand(GCodeDevice *dev);
 
 
     static Job job;

@@ -8,11 +8,11 @@
 
 
 
-#define GD_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
+#define GD_DEBUGF(...) { Serial.printf(__VA_ARGS__); }
 #define GD_DEBUGS(s)  { Serial.println(s); }
 #define GD_DEBUGLN GD_DEBUGS
 
-#define KEEPALIVE_INTERVAL 2500    // Marlin defaults to 2 seconds, get a little of margin
+#define KEEPALIVE_INTERVAL 5000    // Marlin defaults to 2 seconds, get a little of margin
 
 const int MAX_MOUSE_OBSERVERS = 3;
 
@@ -58,7 +58,7 @@ public:
         if(cmd.length()==0) return true;
         return xMessageBufferSend(buf0, cmd.c_str(), cmd.length(), 0) != 0;
     } ;
-    virtual bool canSchedule(size_t len) { if(!buf1) return false; else return xMessageBufferSpaceAvailable(buf1) > len; }
+    virtual bool canSchedule(size_t len) { if(!buf1) return false; else return xMessageBufferSpaceAvailable(buf1) > len + 2; }
 
     virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
 
@@ -118,14 +118,17 @@ protected:
     void checkTimeout() {
         if( !isRxTimeoutEnabled() ) return;
         if (millis() > serialRxTimeout) { 
-            connected = false; 
             GD_DEBUGLN("GCodeDevice::checkTimeout fired"); 
+            connected = false; 
             cleanupQueue();
             disarmRxTimeout(); 
         }
     }
 
-    virtual void cleanupQueue() { if(buf1) xMessageBufferReset(buf1); if(buf0) xMessageBufferReset(buf0); }
+    virtual void cleanupQueue() { 
+        if(buf1) xMessageBufferReset(buf1); 
+        if(buf0) xMessageBufferReset(buf0); 
+    }
 
     float x,y,z;
     bool panic = false;
@@ -200,9 +203,9 @@ class MarlinDevice: public GCodeDevice {
 
 public:
 
-    MarlinDevice(Stream * s): GCodeDevice(s, 1000, 100) { 
+    MarlinDevice(Stream * s): GCodeDevice(s, 100, 100) { 
         desc="Marlin"; 
-        sentQueue = xMessageBufferCreate(MAX_SENT_BYTES);
+
     }
     MarlinDevice() : GCodeDevice() {desc = "Marlin";}
 
@@ -220,14 +223,19 @@ public:
 
     virtual void begin() {
         GCodeDevice::begin();
-        schedulePriorityCommand("M115");
-        schedulePriorityCommand("M114");
-        schedulePriorityCommand("M104");
+        if(! schedulePriorityCommand("M115") ) GD_DEBUGS("could not schedule M115");
+        if(! schedulePriorityCommand("M114") ) GD_DEBUGS("could not schedule M114");
+        if(! schedulePriorityCommand("M105") ) GD_DEBUGS("could not schedule M105");
     }
 
     virtual void reset() {        
         cleanupQueue();
         schedulePriorityCommand("M112");
+    }
+
+    virtual void cleanupQueue() {
+        GCodeDevice::cleanupQueue();
+        sentQueue.clear();
     }
 
     virtual void sendCommands();
@@ -259,13 +267,19 @@ private:
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
     static const size_t MAX_SENT_BYTES = 1000;
-    static const size_t MAX_SENT_LINES = 32;
+    static const size_t MAX_SENT_LINES = 30;
+
+    static const size_t MAX_GCODE_LINE = 96;
 
     //DoubleCommandQueue<30, 0, 2> commandQueue;
     //CommandQueue<30,128> sentQueue;
-    MessageBufferHandle_t sentQueue;
-    size_t freeSize = MAX_SENT_BYTES;
-    size_t freeLines = MAX_SENT_LINES;
+    //MessageBufferHandle_t sentQueue;
+    SizedQueue<MAX_SENT_LINES, MAX_SENT_BYTES, MAX_GCODE_LINE> sentQueue;
+
+    char curUnsentCmd[MAX_GCODE_LINE+1];
+    size_t curUnsentCmdLen;
+    //char curSentCmd[MAX_GCODE_LINE+1];
+    //size_t curCmdLen;
 
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
@@ -287,9 +301,11 @@ private:
     bool parsePosition(const String &str);
 
     bool parseM115(const String &str);
+    bool parseG0G1(const char * str);
 
 
     static float extractFloat(const String &str, const String key) ;
+    static float extractFloat(const char * str, const char* key) ;
     
     static bool isFloat(const String value);
 

@@ -66,6 +66,8 @@
 	#error "include FreeRTOS.h must appear in source files before include message_buffer.h"
 #endif
 
+#define CONFIG_SUPPORT_STATIC_ALLOCATION 1
+
 /* Message buffers are built onto of stream buffers. */
 #include "stream_buffer.h"
 
