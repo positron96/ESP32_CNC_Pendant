@@ -266,6 +266,10 @@ void MarlinDevice::receiveResponses() {
                     }
                     else if (startsWith(resp, "Error:") ) {
                         sprintf(responseDetail, "ERROR");
+
+                        cleanupQueue();
+                        panic = true;
+
                         DeviceError err = { 1 };
                         notify_observers(err); 
                     }

@@ -69,7 +69,7 @@ String getStateText(Job * job = nullptr, MarlinDevice * dev = nullptr) {
     if(!dev->isConnected() ) return "Offline";
     if(job->isPaused()) return "Paused";
     if(job->isRunning()) return "Printing";
-    //if(job->)
+    if(job->isCancelled()) {if(dev->getSentQueueLength()==0) return "Cancelled"; else return "Cancelling";}
     return "Operational";
 }
 
@@ -252,7 +252,10 @@ void WebServer::registerOptoPrintApi() {
         Job * job = Job::getJob();
         MarlinDevice * dev = static_cast<MarlinDevice*>(GCodeDevice::getDevice());
         bool connected = dev==nullptr ? false : dev->isConnected();
+        bool queueEmpty = dev==nullptr ? true : dev->getSentQueueLength()==0;
+        bool error = dev==nullptr ? false : dev->isInPanic();
         String readyState = stringify(connected);
+
         String message = "{\r\n"
                 "  \"state\": {\r\n"
                 "    \"text\": \"" + getStateText(job,dev) + "\",\r\n"
@@ -260,13 +263,12 @@ void WebServer::registerOptoPrintApi() {
                 "      \"operational\": " + readyState + ",\r\n"
                 "      \"paused\": " + stringify(job->isPaused()) + ",\r\n"
                 "      \"printing\": " + stringify(job->isRunning()) + ",\r\n"
-                "      \"pausing\": false,\r\n"
-                //"      \"cancelling\": " + stringify(cancelPrint) + ",\r\n"
-                "      \"cancelling\": false,\r\n"
+                "      \"pausing\": "+ stringify(job->isPaused() && !queueEmpty )+",\r\n"
+                "      \"cancelling\": "+stringify(job->isCancelled() && !queueEmpty )+",\r\n"
                 "      \"sdReady\": false,\r\n"
-                "      \"error\": false,\r\n"
+                "      \"error\": "+ stringify(error)+",\r\n"
                 "      \"ready\": " + readyState + ",\r\n"
-                "      \"closedOrError\": " + stringify(!connected) + "\r\n"
+                "      \"closedOrError\": " + stringify(!connected | error) + "\r\n"
                 "    }\r\n"
                 "  },\r\n";
                 

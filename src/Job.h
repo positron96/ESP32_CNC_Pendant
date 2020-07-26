@@ -43,10 +43,11 @@ public:
         filePos = 0;
         running = false; 
         cancelled = false;
+        curLineNum = 0;
     }
 
     void notification(const DeviceError& err)  {
-        Serial.println("Cought device error!!!");
+        Serial.println("Device error, canceling job");
         cancel();
     }
 
@@ -76,6 +77,8 @@ private:
     static const int MAX_LINE = 100;
     char curLine[MAX_LINE+1];
     size_t curLinePos;
+
+    size_t curLineNum;
 
     //float percentage = 0;
     bool running;

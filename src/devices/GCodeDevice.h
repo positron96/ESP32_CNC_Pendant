@@ -232,7 +232,8 @@ public:
 
     virtual void reset() {        
         cleanupQueue();
-        schedulePriorityCommand("M112");
+        panic = false;
+        //schedulePriorityCommand("M112");
     }
 
     virtual void cleanupQueue() {
@@ -268,7 +269,7 @@ private:
 
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
-    static const size_t MAX_SENT_BYTES = 1000;
+    static const size_t MAX_SENT_BYTES = 128;
     static const size_t MAX_SENT_LINES = 4;
 
     static const size_t MAX_GCODE_LINE = 96;

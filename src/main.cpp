@@ -307,7 +307,7 @@ void loop() {
     static uint32_t nextSent;
     static size_t lv1,lv2;
     if(nextSent < millis()) {
-        size_t v1 =dev->getQueueLength(), v2 = dev->getSentQueueLength();
+        size_t v1 = dev->getQueueLength(), v2 = dev->getSentQueueLength();
         if(v1!=lv1 || v2!=lv2)
             DEBUGF("queue: %d, sent: %d\n", v1, v2 );
         lv1=v1; lv2=v2;
@@ -318,7 +318,7 @@ void loop() {
     while(Serial.available()!=0) {
         char c = Serial.read();
         if(c=='\n' || c=='\r') { 
-            if(s.length()>0) DEBUGF("send %s, result: %d\n", s.c_str(), dev->scheduleCommand(s) ); 
+            if(s.length()>0) DEBUGF("send %s, result: %d\n", s.c_str(), dev->schedulePriorityCommand(s) ); 
             s=""; 
             continue; 
         }
