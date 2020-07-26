@@ -42,6 +42,7 @@ public:
         if(gcodeFile) fileSize = gcodeFile.size();
         filePos = 0;
         running = false; 
+        cancelled = false;
     }
 
     void notification(const DeviceError& err)  {
@@ -50,8 +51,9 @@ public:
     }
 
     void start() { startTime = millis();  running = true;  }
-    void cancel() { running = false; if(gcodeFile) gcodeFile.close();  }
+    void cancel() { cancelled=true; stop();  }
     bool isRunning() {  return running; }
+    bool isCancelled() { return cancelled; }
 
     void pause() { paused = false; }
     void resume() { paused = true; }
@@ -77,8 +79,10 @@ private:
 
     //float percentage = 0;
     bool running;
+    bool cancelled;
     bool paused;
 
+    void stop() {   running = false; if(gcodeFile) gcodeFile.close();  }
     void readNextLine();
     bool scheduleNextCommand(GCodeDevice *dev);
 

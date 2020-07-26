@@ -6,12 +6,12 @@ void Job::setJob(Job* _job) { job = *_job; }
 
 Job * Job::getJob() { return &job; }
 
-#define J_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
-#define J_DEBUGS(s)    { Serial.println(s); }
+#define J_DEBUGF(...) // { Serial.printf(__VA_ARGS__); }
+#define J_DEBUGS(s)   // { Serial.println(s); }
 
 void Job::readNextLine() {
     if(gcodeFile.available()==0) { 
-        cancel();
+        stop();
         return; 
     }
     while( gcodeFile.available()>0 ) {
@@ -22,7 +22,8 @@ void Job::readNextLine() {
         } else {
             if(curLinePos<MAX_LINE) curLine[curLinePos++] = rd;
             else { 
-                cancel(); 
+                stop(); 
+                J_DEBUGF("Line length exceeded\n");
                 break; 
             }
         }
@@ -31,26 +32,36 @@ void Job::readNextLine() {
 }
 
 bool Job::scheduleNextCommand(GCodeDevice *dev) {
+    //static size_t nline = 0;
     
-    if(curLinePos==0) readNextLine();
-    if(!running) return false;    // don't run next time
-    //assert(curLinePos != 0);
-
-    if(dev->canSchedule(curLinePos)) {
-
-        J_DEBUGF("  J queueing line '%s', len %d\n", curLine, curLinePos );
+    if(curLinePos==0) {
+        readNextLine();
+        if(!running) return false;    // don't run next time
 
         char* pos = strchr(curLine, ';');
         if(pos!=NULL) {*pos = 0; curLinePos = pos-curLine; }
 
-        if(curLinePos==0) { J_DEBUGS("  J zero-length line"); return true; } // can seek next
+        if(curLinePos==0) { return true; } // can seek next
 
-        dev->scheduleCommand(curLine, curLinePos);
+        /*char out[MAX_LINE+1];
+        snprintf(out, MAX_LINE, "N%d %s", ++nline, curLine);
+        uint8_t checksum = 0, count = strlen(out);
+        while (count) checksum ^= out[--count];
+        snprintf(curLine, MAX_LINE, "%s*%d", out, checksum);
+        curLinePos = strlen(curLine);*/
+    }
+
+    if(dev->canSchedule(curLinePos)) {        
+        
+        J_DEBUGF("  J queueing line '%s', len %d\n", curLine, curLinePos );
+
+        bool queued = dev->scheduleCommand(curLine, curLinePos);
+        assert(queued);
 
         curLinePos = 0;
         return true; //can try next command
 
-    } return false; // stop trying for now
+    } else return false; // stop trying for now
 }
 
 void Job::loop() {

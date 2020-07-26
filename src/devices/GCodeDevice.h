@@ -136,6 +136,8 @@ protected:
     //AbstractQueue *queue;
     MessageBufferHandle_t  buf0;
     MessageBufferHandle_t  buf1;
+    bool xoff;
+    bool xoffEnabled = true;
 
 private:
     static GCodeDevice *device;
@@ -267,7 +269,7 @@ private:
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
     static const size_t MAX_SENT_BYTES = 1000;
-    static const size_t MAX_SENT_LINES = 30;
+    static const size_t MAX_SENT_LINES = 4;
 
     static const size_t MAX_GCODE_LINE = 96;
 
@@ -280,6 +282,7 @@ private:
     size_t curUnsentCmdLen;
     //char curSentCmd[MAX_GCODE_LINE+1];
     //size_t curCmdLen;
+    
 
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;

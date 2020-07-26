@@ -1,5 +1,8 @@
 #include "GCodeDevice.h"
 
+#define XOFF  0x13
+#define XON   0x11
+
 GCodeDevice *GCodeDevice::device;
 
 GCodeDevice *GCodeDevice::getDevice() {
@@ -161,6 +164,7 @@ void MarlinDevice::sendCommands() {
     if(panic) return;
     bool loadedNewCmd=false;
 
+    if(xoffEnabled && xoff) return;
     static size_t nline=0;
 
     if(curUnsentCmdLen==0) {
@@ -187,7 +191,7 @@ void MarlinDevice::sendCommands() {
         printerSerial->print('\n');
         armRxTimeout();
         curUnsentCmdLen = 0;
-        GD_DEBUGF("<  (%3d) '%s'\n", sentQueue.getFreeLines(), curUnsentCmd );
+        GD_DEBUGF("<  (f%3d) '%s'\n", sentQueue.getFreeLines(), curUnsentCmd );
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
     }
@@ -208,8 +212,12 @@ void MarlinDevice::receiveResponses() {
 
     while (printerSerial->available()) {
         char ch = (char)printerSerial->read();
-        if (ch!='\n' && ch!='\r') {
-            if(respLen<MAX_LINE) resp[respLen++] = ch;
+        switch(ch) {
+            case '\n':
+            case '\r': break;
+            case XOFF: xoff=true; break;
+            case XON: xoff=false; break;
+            default: if(respLen<MAX_LINE) resp[respLen++] = ch;
         }
         if(ch=='\n') {
             resp[respLen]=0;
@@ -271,7 +279,7 @@ void MarlinDevice::receiveResponses() {
                 }
             }
 
-            GD_DEBUGF(" > (%3d) '%s' current cmd '%s', desc:'%s'\n", sentQueue.getFreeLines(), resp, curCmd, responseDetail );
+            GD_DEBUGF(" > (f%3d) '%s' current cmd '%s', desc:'%s'\n", sentQueue.getFreeLines(), resp, curCmd, responseDetail );
             //GD_DEBUGF("   free slots: %d type:'%s' \n", sentQueue.getFreeLines(),  responseDetail  );
             updateRxTimeout( sentQueue.size()>0 );
             respLen = 0;

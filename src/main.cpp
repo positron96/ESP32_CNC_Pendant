@@ -203,7 +203,7 @@ void detectPrinter() {
 void deviceLoop(void* pvParams) {
     PrinterSerial.begin(115200);
     PrinterSerial.setTimeout(2000);
-    if(! detectPrinterAttempt(250000, 1) ) {
+    if(! detectPrinterAttempt(115200, 1) ) {
         detectPrinter();
     }
     while(1) {
