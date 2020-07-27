@@ -36,17 +36,21 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 
 ## Features and specification:
 
-**At the moment, this is more of a TODO-list!**
+* [x] Connection to device via UART.
+  UART speed is autodetected at start, as it the type of firmware (Grbl/Marlin)
+  I've considered USB in USB-host mode, but it requires battery circuitry since printer won't power the pendant via USB.
+  I am also considering an RS232 converter as bare UART isn't going very well via long cables 
+  (Had 1 bit flipped in several minute print. Need more testing)
 
+* [x] Autodetection of device firmware: Marlin/grbl. Correct answer to M115 is expected for Marlin, and answer of $I for Grbl.
 
-* [x] Connection to device via UART (I've considered USB in USB-host mode, but it requires battery circuitry since printer won't power the pendant via USB)
-
-* [x] Autodetection of device firmware: Marlin/grbl. Seems to be working
-
-* [x] uSD card for storing files
+* [x] uSD card for storing files. 
+  In future, configuration will also be stored there
 
 * [x] WiFi
-** [x] Uploading files to ESP32 from PC (Octoprint interface, rudimentary Web interface)
+** [x] Uploading files to ESP32 from PC
+** [x] Octoprint interface, works with Cura (3.6).
+** [x] Rudimentary Web interface to upload, download, start prints.
 ** [ ] Direct TCP/IP to UART bridge
 
 * [x] User interace (quick'n'dirty implementation works)
@@ -55,7 +59,8 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 *** Jogging and DRO
 *** Printing from a file. Includes a file browser and printing status window a-la Marlin LCD interface.
 
-* [ ] Settings window for connecting to a WiFi network etc (this idea might be dropped since entering WiFi password would be a pain).
+* [ ] Settings window for connecting to a WiFi network etc.
+  This idea might be dropped since entering WiFi password would be a pain.
 
 # BOM
 
@@ -83,3 +88,12 @@ image::docs/lcd.png[display,300,200]
   https://www.thingiverse.com/thing:4539827
 
 image::docs/case-render.png[render of case,640,480]
+
+# Notes
+
+## 27.07
+
+Surprisingly, at 60mm/sec prints Ender-3 does not require increasing of buffer sizes, as reported by many Octoprint users.
+So, this program successfully manages to keep Marlin's buffers busy. 
+Someone elsewould need to test faster prints, but I believe that UART would not be the bottleneck. 
+I've extracted UART to a separate freeRTOS task, so it's not dependant on other functions (except SD card reading which is done in main loop for now)
