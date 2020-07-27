@@ -5,6 +5,8 @@
 
 #include "devices/GCodeDevice.h"
 
+//#define ADD_LINENUMBERS 
+
 /**
  * State diagram:
  * ```

@@ -6,7 +6,7 @@
 #include "CommandQueue.h"
 #include <message_buffer.h>
 
-
+//#define ADD_LINECOMMENTS
 
 #define GD_DEBUGF(...) { Serial.printf(__VA_ARGS__); }
 #define GD_DEBUGS(s)  { Serial.println(s); }
@@ -49,16 +49,21 @@ public:
     virtual bool scheduleCommand(char* cmd, size_t len) {
         if(panic) return false;
         if(!buf1) return false;
-        if(len==0) return true;
+        if(len==0) return false;
         return xMessageBufferSend(buf1, cmd, len, 0) != 0;
     };
     virtual bool schedulePriorityCommand(String cmd) { 
         if(panic) return false;
         if(!buf0) return false;
-        if(cmd.length()==0) return true;
+        if(cmd.length()==0) return false;
         return xMessageBufferSend(buf0, cmd.c_str(), cmd.length(), 0) != 0;
     } ;
-    virtual bool canSchedule(size_t len) { if(!buf1) return false; else return xMessageBufferSpaceAvailable(buf1) > len + 2; }
+    virtual bool canSchedule(size_t len) { 
+        if(panic) return false;
+        if(!buf1) return false; 
+        if(len==0) return false;
+        return xMessageBufferSpaceAvailable(buf1) > len + 2; 
+    }
 
     virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
 
@@ -205,7 +210,7 @@ class MarlinDevice: public GCodeDevice {
 
 public:
 
-    MarlinDevice(Stream * s): GCodeDevice(s, 100, 100) { 
+    MarlinDevice(Stream * s): GCodeDevice(s, 100, 200) { 
         desc="Marlin"; 
 
     }
@@ -270,7 +275,7 @@ private:
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
     static const size_t MAX_SENT_BYTES = 128;
-    static const size_t MAX_SENT_LINES = 4;
+    static const size_t MAX_SENT_LINES = 400;
 
     static const size_t MAX_GCODE_LINE = 96;
 
@@ -302,7 +307,7 @@ private:
     
     // Parse position responses from printer like
     // X:-33.00 Y:-10.00 Z:5.00 E:37.95 Count X:-3300 Y:-1000 Z:2000
-    bool parsePosition(const String &str);
+    bool parsePosition(const char *str);
 
     bool parseM115(const String &str);
     bool parseG0G1(const char * str);

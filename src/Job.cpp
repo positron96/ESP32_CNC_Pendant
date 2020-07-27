@@ -42,12 +42,14 @@ bool Job::scheduleNextCommand(GCodeDevice *dev) {
 
         if(curLinePos==0) { return true; } // can seek next
 
-        char out[MAX_LINE+1];
-        snprintf(out, MAX_LINE, "N%d %s", ++curLineNum, curLine);
-        uint8_t checksum = 0, count = strlen(out);
-        while (count) checksum ^= out[--count];
-        snprintf(curLine, MAX_LINE, "%s*%d", out, checksum);
-        curLinePos = strlen(curLine);
+        #ifdef ADD_LINENUMBERS
+            char out[MAX_LINE+1];
+            snprintf(out, MAX_LINE, "N%d %s", ++curLineNum, curLine);
+            uint8_t checksum = 0, count = strlen(out);
+            while (count) checksum ^= out[--count];
+            snprintf(curLine, MAX_LINE, "%s*%d", out, checksum);
+            curLinePos = strlen(curLine);
+        #endif
     }
 
     if(dev->canSchedule(curLinePos)) {        

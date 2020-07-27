@@ -162,36 +162,40 @@ size_t MarlinDevice::getSentQueueLength() {
 
 void MarlinDevice::sendCommands() {
     if(panic) return;
-    bool loadedNewCmd=false;
+    //bool loadedNewCmd=false;
 
     if(xoffEnabled && xoff) return;
+
+    #ifdef ADD_LINECOMMENTS
     static size_t nline=0;
+    #endif
 
     if(curUnsentCmdLen==0) {
-        char tmp[MAX_GCODE_LINE+1];
-        curUnsentCmdLen = xMessageBufferReceive(buf0, tmp, MAX_GCODE_LINE, 0);
-        if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, tmp, MAX_GCODE_LINE, 0);
-        //curUnsentCmdLen = xMessageBufferReceive(buf0, curUnsentCmd, MAX_GCODE_LINE, 0);
-        //if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, curUnsentCmd, MAX_GCODE_LINE, 0);
-        loadedNewCmd=true;
-        if(curUnsentCmdLen!=0) {
-            tmp[curUnsentCmdLen] = 0;
-            snprintf(curUnsentCmd, MAX_GCODE_LINE, "%s ;%d", tmp, nline++);
-            curUnsentCmdLen = strlen(curUnsentCmd);
-        }
-        //snprintf(curUnsentCmd, MAX_GCODE_LINE, "%s", tmp);
+        #ifdef ADD_LINECOMMENTS
+            char tmp[MAX_GCODE_LINE+1];
+            curUnsentCmdLen = xMessageBufferReceive(buf0, tmp, MAX_GCODE_LINE, 0);
+            if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, tmp, MAX_GCODE_LINE, 0);
+            if(curUnsentCmdLen!=0) {
+                tmp[curUnsentCmdLen] = 0;
+                snprintf(curUnsentCmd, MAX_GCODE_LINE, "%s ;%d", tmp, nline++);
+                curUnsentCmdLen = strlen(curUnsentCmd);
+            }
+        #else
+            curUnsentCmdLen = xMessageBufferReceive(buf0, curUnsentCmd, MAX_GCODE_LINE, 0);
+            if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, curUnsentCmd, MAX_GCODE_LINE, 0);
+            curUnsentCmd[curUnsentCmdLen] = 0; 
+        #endif
+        //loadedNewCmd = true;
     }
     if(curUnsentCmdLen==0) return;
-    
-    curUnsentCmd[curUnsentCmdLen] = 0;
 
     if( sentQueue.canPush(curUnsentCmdLen) ) {
         sentQueue.push( curUnsentCmd, curUnsentCmdLen );
         printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
         printerSerial->print('\n');
         armRxTimeout();
+        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
         curUnsentCmdLen = 0;
-        GD_DEBUGF("<  (f%3d) '%s'\n", sentQueue.getFreeLines(), curUnsentCmd );
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
     }
@@ -252,7 +256,7 @@ void MarlinDevice::receiveResponses() {
                         parseM115(String(resp) ); sprintf(responseDetail, "status");
                     } else if (parseTemperatures(String(resp) ) )
                         sprintf(responseDetail, "autotemp");
-                    else if (parsePosition(String(resp) ) )
+                    else if (parsePosition(resp) )
                         sprintf(responseDetail, "position");
                     /*else if (startsWith(resp, "Resend: ")) {
                         nline = (int)extractFloat(resp, "Resend:");
@@ -283,7 +287,8 @@ void MarlinDevice::receiveResponses() {
                 }
             }
 
-            GD_DEBUGF(" > (f%3d) '%s' current cmd '%s', desc:'%s'\n", sentQueue.getFreeLines(), resp, curCmd, responseDetail );
+            GD_DEBUGF(" > (f%3d,%3d) '%s' current cmd '%s', desc:'%s'\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), 
+                resp, curCmd, responseDetail );
             //GD_DEBUGF("   free slots: %d type:'%s' \n", sentQueue.getFreeLines(),  responseDetail  );
             updateRxTimeout( sentQueue.size()>0 );
             respLen = 0;
@@ -344,7 +349,7 @@ bool MarlinDevice::parseTemp(const String &response, const String whichTemp, Tem
 
 // Parse position responses from printer like
 // X:-33.00 Y:-10.00 Z:5.00 E:37.95 Count X:-3300 Y:-1000 Z:2000
-bool MarlinDevice::parsePosition(const String &str) {
+bool MarlinDevice::parsePosition(const char * str) {
     float t = extractFloat(str, "X:");
     if(!isnan(t) ) x = t; else return false;
     t = extractFloat(str, "Y:");
