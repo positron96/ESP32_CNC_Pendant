@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <message_buffer.h>
 
-template< uint8_t LEN_LINES = 16, uint16_t LEN_BYTES = 0, uint16_t MAX_LINE_LEN = 100 >
+template< uint16_t LEN_LINES = 16, uint16_t LEN_BYTES = 128, uint8_t MAX_LINE_LEN = 100 >
 class SizedQueue {
 public:
     SizedQueue() {
@@ -23,13 +23,13 @@ public:
 
     bool canPush(size_t len) const {
         if(len>MAX_LINE_LEN) len = MAX_LINE_LEN;
-        return freeBytes>len && freeLines>0;
+        return freeBytes>len+1 && freeLines>0;
     }
 
     bool push(char* msg, size_t len)  {
         if(!canPush(len)) return false;
         if(len>MAX_LINE_LEN) len = MAX_LINE_LEN;
-        xMessageBufferSend(buf, msg, len, 0);
+        assert( xMessageBufferSend(buf, msg, len, 0) );
         freeLines --;
         freeBytes -= len+1;
         return true;
@@ -61,7 +61,7 @@ public:
         return peekedLineLen;
     }
 
-    size_t pop(char * msg, size_t maxLen ) {
+/*    size_t pop(char * msg, size_t maxLen ) {
         if(size() == 0) return 0;
         if(!havePeekedLine) {
             loadLineFromBuf();
@@ -76,6 +76,7 @@ public:
         peekedLineLen = 0;
         return ret;
     }
+    */
 
     void pop() {
         if(size() == 0) return;

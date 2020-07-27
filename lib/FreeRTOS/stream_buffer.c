@@ -41,7 +41,7 @@ task.h is included from an application file. */
 #include <freertos/task.h>
 #include "stream_buffer.h"
 
-#define configMESSAGE_BUFFER_LENGTH_TYPE uint16_t
+#define configMESSAGE_BUFFER_LENGTH_TYPE uint8_t
 #define traceSTREAM_BUFFER_CREATE(...)
 #define traceSTREAM_BUFFER_CREATE_FAILED(...)
 #define traceSTREAM_BUFFER_DELETE(...)
