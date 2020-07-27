@@ -175,7 +175,7 @@ bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
         PrinterSerial.updateBaudRate(speed);
         while(PrinterSerial.available()) PrinterSerial.read();
         DeviceDetector::sendProbe(type, PrinterSerial);
-        String v = readStringUntil('\n', 2000); v.trim();
+        String v = readStringUntil('\n', 1000); v.trim();
         DEBUGF("Got response '%s'\n", v.c_str() );
         if(v) {
             dev = DeviceDetector::checkProbe(type, v, PrinterSerial);
@@ -202,7 +202,7 @@ void detectPrinter() {
 
 void deviceLoop(void* pvParams) {
     PrinterSerial.begin(115200);
-    PrinterSerial.setTimeout(2000);
+    PrinterSerial.setTimeout(1000);
     if(! detectPrinterAttempt(115200, 1) ) {
         detectPrinter();
     }
