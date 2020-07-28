@@ -1,4 +1,4 @@
-# A CNC Pendant That Is Also An Octoprint
+# ESPendant: A CNC Pendant That Is Also An Octoprint
 
 # Intro 
 
