@@ -153,59 +153,19 @@ void setup() {
     
 }
 
-const uint32_t serialBauds[] = { 115200, 250000, 57600 };    // Marlin valid bauds (removed very low bauds; roughly ordered by popularity to speed things up)
-
-String readStringUntil(char terminator, size_t timeout) {
-    String ret;
-    timeout += millis();
-    char c;
-    int len = PrinterSerial.readBytes(&c, 1);
-    while(len>0 && c != terminator && millis()<timeout) {
-        ret += (char) c;
-        len = PrinterSerial.readBytes(&c, 1);
-    }
-    return ret;
-}
-
-bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
-    for(uint8_t retry=0; retry<2; retry++) {
-        DEBUGF("attempt %d, speed %d, type %d\n", retry, speed, type);
-        //PrinterSerial.end();
-        //PrinterSerial.begin(speed);
-        PrinterSerial.updateBaudRate(speed);
-        while(PrinterSerial.available()) PrinterSerial.read();
-        DeviceDetector::sendProbe(type, PrinterSerial);
-        String v = readStringUntil('\n', 1000); v.trim();
-        DEBUGF("Got response '%s'\n", v.c_str() );
-        if(v) {
-            dev = DeviceDetector::checkProbe(type, v, PrinterSerial);
-            if(dev != nullptr) {
-                GCodeDevice::setDevice(dev);
-                dev->add_observer( *job );
-                dev->begin();
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-void detectPrinter() {
-    while(true) {
-        for(uint32_t speed: serialBauds) {
-            for(int type=0; type<DeviceDetector::N_TYPES; type++)
-                if(detectPrinterAttempt(speed, type)) return;
-        }
-    }    
-    
-}
 
 void deviceLoop(void* pvParams) {
     PrinterSerial.begin(115200);
     PrinterSerial.setTimeout(1000);
-    if(! detectPrinterAttempt(115200, 1) ) {
-        detectPrinter();
+    dev = DeviceDetector::detectPrinterAttempt(PrinterSerial, 115200, 1); 
+    if(dev==nullptr ) {
+        dev = DeviceDetector::detectPrinter(PrinterSerial);
     }
+    
+    GCodeDevice::setDevice(dev);
+    dev->add_observer( *job );
+    dev->begin();
+    
     while(1) {
         dev->loop();
     }

@@ -330,16 +330,22 @@ private:
 
 };
 
+String readStringUntil(Stream &PrinterSerial, char terminator, size_t timeout);
 
 class DeviceDetector {
 public:
 
     constexpr static int N_TYPES = 2;
 
+    static const uint32_t serialBauds[];   // Marlin valid bauds (removed very low bauds; roughly ordered by popularity to speed things up)
+
+    static GCodeDevice* detectPrinter(HardwareSerial &PrinterSerial);
+
+    static GCodeDevice* detectPrinterAttempt(HardwareSerial &PrinterSerial, uint32_t speed, uint8_t type);
+
+private:
     static void sendProbe(uint8_t i, Stream &serial);
 
     static GCodeDevice* checkProbe(uint8_t i, String v, Stream &serial) ;
-
-private:
 
 };

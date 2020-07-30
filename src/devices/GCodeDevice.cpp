@@ -3,25 +3,10 @@
 #define XOFF  0x13
 #define XON   0x11
 
-GCodeDevice *GCodeDevice::device;
-
-GCodeDevice *GCodeDevice::getDevice() {
-    return device;
-}
-void GCodeDevice::setDevice(GCodeDevice *dev) {
-    device = dev;
-}
-
-/*
-static union DevicesUnion {
-    GrblDevice grbl;
-    MarlinDevice marlin;
-    DevicesUnion() {  }
-    ~DevicesUnion() {  }
-} devices;*/
 #define MAX(a,b)  ( (a)>(b) ? (a) : (b) )
 static char deviceBuffer[MAX(sizeof(MarlinDevice), sizeof(GrblDevice))];
 
+const uint32_t DeviceDetector::serialBauds[] = { 115200, 250000, 57600 }; 
 
 void DeviceDetector::sendProbe(uint8_t i, Stream &serial) {
     switch(i) {
@@ -35,7 +20,6 @@ void DeviceDetector::sendProbe(uint8_t i, Stream &serial) {
             break;
     }
 }
-
 
 GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
     if(i==0) {
@@ -60,8 +44,64 @@ GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
     //return false;
 }
 
+GCodeDevice* DeviceDetector::detectPrinterAttempt(HardwareSerial &printerSerial, uint32_t speed, uint8_t type) {
+    for(uint8_t retry=0; retry<2; retry++) {
+        GD_DEBUGF("attempt %d, speed %d, type %d\n", retry, speed, type);
+        //PrinterSerial.end();
+        //PrinterSerial.begin(speed);
+        printerSerial.updateBaudRate(speed);
+        while(printerSerial.available()) printerSerial.read();
+        DeviceDetector::sendProbe(type, printerSerial);
+        String v = readStringUntil(printerSerial, '\n', 1000); v.trim();
+        GD_DEBUGF("Got response '%s'\n", v.c_str() );
+        if(v) {
+            GCodeDevice * dev = DeviceDetector::checkProbe(type, v, printerSerial);
+            if(dev!=nullptr) return dev;
+        }
+    }
+    return nullptr;
+}
 
 
+GCodeDevice* DeviceDetector::detectPrinter(HardwareSerial &printerSerial) {
+    while(true) {
+        for(uint32_t speed: serialBauds) {
+            for(int type=0; type<DeviceDetector::N_TYPES; type++) {
+                GCodeDevice *dev = detectPrinterAttempt(printerSerial, speed, type);
+                if(dev!=nullptr) return dev;
+            }
+        }
+    }    
+    
+}
+
+String readStringUntil(Stream &serial, char terminator, size_t timeout) {
+    String ret;
+    timeout += millis();
+    char c;
+    int len = serial.readBytes(&c, 1);
+    while(len>0 && c != terminator && millis()<timeout) {
+        ret += (char) c;
+        len = serial.readBytes(&c, 1);
+    }
+    return ret;
+}
+
+
+
+
+
+
+
+
+GCodeDevice *GCodeDevice::device;
+
+GCodeDevice *GCodeDevice::getDevice() {
+    return device;
+}
+void GCodeDevice::setDevice(GCodeDevice *dev) {
+    device = dev;
+}
 
 
 
