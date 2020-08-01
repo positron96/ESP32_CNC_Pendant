@@ -13,12 +13,10 @@ uint32_t DeviceDetector::serialBaud = 0;
 void DeviceDetector::sendProbe(uint8_t i, Stream &serial) {
     switch(i) {
         case 0: 
-            serial.println();
-            serial.println("$I");
+            serial.print("\n$I\n");
             break;
         case 1:
-            serial.println();
-            serial.println("M115");
+            serial.print("\nM115\n");
             break;
     }
 }
@@ -55,9 +53,11 @@ GCodeDevice* DeviceDetector::detectPrinterAttempt(HardwareSerial &printerSerial,
         printerSerial.updateBaudRate(speed);
         while(printerSerial.available()) printerSerial.read();
         DeviceDetector::sendProbe(type, printerSerial);
-        String v = readStringUntil(printerSerial, '\n', 1000); v.trim();
+        //String v = readStringUntil(printerSerial, '\n', 1000); v.trim();
+        String v = readString(printerSerial, 1000);
         GD_DEBUGF("Got response '%s'\n", v.c_str() );
         if(v) {
+            //int t = v.indexOf('\n');
             GCodeDevice * dev = DeviceDetector::checkProbe(type, v, printerSerial);
             if(dev!=nullptr) return dev;
         }
@@ -90,6 +90,18 @@ String readStringUntil(Stream &serial, char terminator, size_t timeout) {
     return ret;
 }
 
+String readString(Stream &serial, size_t timeout, size_t earlyTimeout) {
+    String ret; ret.reserve(40);
+    timeout += millis();
+    earlyTimeout += millis();
+    while(millis()<timeout) {
+        if(serial.available()>0) {
+            ret += (char)serial.read();
+        }
+        if(millis()>earlyTimeout && ret.length()>0 ) break; // break early if something was read at all
+    }
+    return ret;
+}
 
 
 
@@ -144,7 +156,7 @@ void GCodeDevice::sendCommands() {
         printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
         printerSerial->print('\n');
         armRxTimeout();
-        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
+        //GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
         curUnsentCmdLen = 0;
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
@@ -184,9 +196,14 @@ void GrblDevice::receiveResponses() {
             if ( resp.startsWith("<") ) {
                 parseGrblStatus(resp);
             }
-            //GD_DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
+            
+            
+            //GD_DEBUGF(" > (f%3d,%3d) '%s' current cmd, desc:'%s'\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), 
+            //    resp.c_str(), responseDetail.c_str() );
+
             updateRxTimeout( sentQueue.size()>0 );
             resp = "";
+            
         }
     }
 

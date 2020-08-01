@@ -8,6 +8,9 @@
 #include "../InetServer.h"
 #include "../Job.h"
 
+#define S_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
+#define S_DEBUGFI(...)  { log_printf(__VA_ARGS__); }
+#define S_DEBUGS(s)  { Serial.println(s); }
 
 enum class Button {
     ENC_UP, ENC_DOWN, BT1, BT2, BT3
@@ -20,7 +23,7 @@ public:
     static bool buttonPressed[3];
     static int encVal;
     static int potVal[2];
-    static const int STATUS_BAR_HEIGHT = 8;
+    static const int STATUS_BAR_HEIGHT = 9;
 
     void setDirty(bool fdirty=true) { dirty=fdirty; }
 
@@ -78,6 +81,7 @@ private:
 
     void processPot() {
         static int lastPotVal[2] = {0,0};
+        
         for(int i=0; i<2; i++) {
             if(lastPotVal[i] != potVal[i]) {
                 onPotValueChanged(i, potVal[i]);

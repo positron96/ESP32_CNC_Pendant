@@ -43,38 +43,57 @@ public:
     
     //virtual void begin() {};
 
-    void loop() override {
+    /*void loop() override {
         if(millis()>nextRefresh) {
             nextRefresh = millis() + 500;
             setDirty();
         }
-    };
+    };*/
 
 private:
 
     JogAxis cAxis;
     JogDist cDist;
     uint32_t nextRefresh;
+    uint32_t lastJog;
 
 protected:
 
+    void drawAxis(char axis, float v, int y) {
+        const int LEN=20;
+        char str[LEN];
+        
+        snprintf(str, LEN, "%c% 8.3f", axis, v );
+        u8g2.drawStr(0, y, str );
+        //u8g2.drawGlyph();
+    }
+
     void drawContents() override {
-        const int LEN = 100;
+        const int LEN = 20;
         char str[LEN];
 
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) return;
 
-        u8g2.setFont( u8g2_font_6x12_tr );
-        int y = STATUS_BAR_HEIGHT, h=u8g2.getAscent()-u8g2.getDescent();
+        u8g2.setFont( u8g2_font_7x13B_tr );
+        int y = STATUS_BAR_HEIGHT+3, h=u8g2.getAscent()-u8g2.getDescent()+3;
 
-        u8g2.drawGlyph(1, y+h*(int)cAxis, '>' ); 
+        //u8g2.drawGlyph(0, y+h*(int)cAxis, '>' ); 
 
-        snprintf(str, LEN, "X: %.3f", dev->getX() );   u8g2.drawStr(10, y, str ); y+=h;
-        snprintf(str, LEN, "Y: %.3f", dev->getY() );   u8g2.drawStr(10, y, str ); y+=h;
-        snprintf(str, LEN, "Z: %.3f", dev->getZ() );   u8g2.drawStr(10, y, str ); y+=h;
+        u8g2.setDrawColor(1);
+        u8g2.drawBox(0, y+h*(int)cAxis-1, 6, h);
 
-        snprintf(str, LEN, "x%3f", distVal(cDist) );   u8g2.drawStr(10, y, str);
+        u8g2.setDrawColor(2);
+
+        drawAxis('X', dev->getX(), y); y+=h;
+        drawAxis('Y', dev->getY(), y); y+=h;
+        drawAxis('Z', dev->getZ(), y); y+=h;        
+
+        y+=5;
+        u8g2.setFont( u8g2_font_nokiafc22_tr   );
+        float m = distVal(cDist);
+        snprintf(str, LEN, m<1 ? "x%.1f" : "x%.0f", m );
+        u8g2.drawStr(0, y, str);
         
 
         //Job *job = Job::getJob();
@@ -88,35 +107,53 @@ protected:
     void onPotValueChanged(int pot, int v) override {
         //  center lines : 2660    3480    4095
         // borders:            3000    3700
+        // v1:    0     250     500
+        //          125    375
+        const static int MX = 1200;
+        const static int b1 = MX/4;
+        const static int b2 = b1*3;   
+        const static int d=60;
         bool ch=false;
         if(pot==0) {
-            if( cAxis==JogAxis::X && v>3000+100) {cAxis=JogAxis::Y; ch=true;}
-            if( cAxis==JogAxis::Y && v>3700+100) {cAxis=JogAxis::Z; ch=true;}
-            if( cAxis==JogAxis::Z && v<3700-100) {cAxis=JogAxis::Y; ch=true;}
-            if( cAxis==JogAxis::Y && v<3000-100) {cAxis=JogAxis::X; ch=true;}
+            if( cAxis==JogAxis::X && v>b1+d) {cAxis=JogAxis::Y; ch=true;}
+            if( cAxis==JogAxis::Y && v>b2+d) {cAxis=JogAxis::Z; ch=true;}
+            if( cAxis==JogAxis::Z && v<b2-d) {cAxis=JogAxis::Y; ch=true;}
+            if( cAxis==JogAxis::Y && v<b1-d) {cAxis=JogAxis::X; ch=true;}
+            if(ch) lastJog=0;
         } else
         if(pot==1) {
 
             // centers:      950    1620     2420
             // borders:         1300    2000            
-            if( cDist==JogDist::_01 && v>1300+100) {cDist=JogDist::_1; ch=true;}
-            if( cDist==JogDist::_1  && v>2000+100) {cDist=JogDist::_10; ch=true;}
-            if( cDist==JogDist::_10 && v<2000-100) {cDist=JogDist::_1; ch=true;}
-            if( cDist==JogDist::_1  && v<1300-100) {cDist=JogDist::_01; ch=true;}
+            if( cDist==JogDist::_01 && v>b1+d) {cDist=JogDist::_1; ch=true;}
+            if( cDist==JogDist::_1  && v>b2+d) {cDist=JogDist::_10; ch=true;}
+            if( cDist==JogDist::_10 && v<b2-d) {cDist=JogDist::_1; ch=true;}
+            if( cDist==JogDist::_1  && v<b1-d) {cDist=JogDist::_01; ch=true;}
         }
-        if(ch) setDirty();
+        if(ch) {
+            //S_DEBUGF("changed pot: axis:%d dist:%d, pot%d=%d\n", (int)cAxis, (int)cDist, pot, v);
+            setDirty();
+        } 
     }
 
     virtual void onButtonPressed(Button bt) override {
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) {
-            DEBUGF("device is null\n");
+            S_DEBUGF("device is null\n");
             return;
         }
-        bool r = dev->jog( (int)cAxis, distVal(cDist) );
-        //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
-        if(!r) DEBUGF("Could not schedule jog\n");
-        setDirty();
+        if(bt == Button::ENC_UP || bt==Button::ENC_DOWN) {
+            float f=0;
+            float d = distVal(cDist);
+            if( lastJog!=0) { f = d / (millis()-lastJog) * 1000*60; };
+            if(f<500) f=500;
+            S_DEBUGF("jog af %d\n", (int)f);
+            bool r = dev->jog( (int)cAxis, (bt==Button::ENC_DOWN ? 1 : -1) * d, (int)f );
+            lastJog = millis();
+            //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+            if(!r) S_DEBUGF("Could not schedule jog\n");
+            setDirty();
+        }
     };
 
 

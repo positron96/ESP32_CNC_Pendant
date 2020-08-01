@@ -9,39 +9,43 @@ int Screen::encVal = 0;
 
         u8g2.setFont(u8g2_font_5x8_tr);
 
+        char c;
         // device status
         GCodeDevice *dev = GCodeDevice::getDevice();
-        if(dev==nullptr) u8g2.drawGlyph(0,0, '?');
+        if(dev==nullptr) c='?';
         else {
-            char s = dev->getDescrption().charAt(0);
-            if(dev->isConnected() ) s=toupper(s); else s=tolower(s);
-            if(dev->isInPanic() ) s='!';            
-            u8g2.drawGlyph(0,0, s );
+            c = dev->getDescrption().charAt(0);
+            if(dev->isConnected() ) c=toupper(c); else c=tolower(c);
+            if(dev->isInPanic() ) c='!';            
         }
+        u8g2.drawGlyph(0,0, c);
 
-        // job
+        // job status
         Job *job = Job::getJob();
         char str[20];
         if(job->isRunning() ) {
-            snprintf(str, 20, ">%.1f%%", job->getPercentage() );
-            if(job->isPaused() ) {
-                str[0] = ' ';
-            }
-        }
+            float p = job->getPercentage();
+            if(p<10) snprintf(str, 20, " %.1f%%", p );
+            else snprintf(str, 20, " %d%%", (int)p );
+            if(job->isPaused() ) str[0] = '|';
+        } else strncpy(str, " ---%", 20);
         int w = u8g2.getStrWidth(str);
         u8g2.drawStr(u8g2.getWidth()-w, 0, str);
+        //S_DEBUGF("drawing '%s' len %d\n", str, strlen(str) );
         
 
-        // download
+        // web
         WebServer *ws = WebServer::getWebServer();
         if(ws!=nullptr) {
-            if(ws->isDownloading() ) u8g2.drawGlyph(10, 0, 'W');
-            else u8g2.drawGlyph(10,0, 'w');
+            char c;
+            if(ws->isDownloading() ) c='W';
+            else if(ws->isRunning() ) c = 'w'; else c='.';
+            u8g2.drawGlyph(5,0, c);
         }
 
 
         // line
-        u8g2.drawHLine(0, STATUS_BAR_HEIGHT, u8g2.getWidth() );
+        u8g2.drawHLine(0, STATUS_BAR_HEIGHT-1, u8g2.getWidth() );
     }
 
     
@@ -52,7 +56,7 @@ int Screen::encVal = 0;
         drawStatusBar();
         drawContents();
 
-        char str[15]; sprintf(str, "%lu", millis() ); u8g2.drawStr(50,50, str);
+        char str[15]; sprintf(str, "%lu", millis() ); u8g2.drawStr(20,100, str);
 
         u8g2.sendBuffer();
         dirty = false;
@@ -62,4 +66,4 @@ int Screen::encVal = 0;
         processEnc();
         processButtons();
         processPot();
-    }
+    } 

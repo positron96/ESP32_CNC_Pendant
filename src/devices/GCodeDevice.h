@@ -321,6 +321,7 @@ private:
 };
 
 String readStringUntil(Stream &PrinterSerial, char terminator, size_t timeout);
+String readString(Stream &PrinterSerial, size_t timeout, size_t timeout2=100);
 
 class DeviceDetector {
 public:

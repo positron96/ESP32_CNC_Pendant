@@ -52,11 +52,16 @@ void WebServer::begin() {
     MDNS.addServiceTxt("http", "tcp", "version", SKETCH_VERSION);
 
     registerOptoPrintApi();
-
     registerWebBrowser();
 
     server.begin();
+    running = true;
 
+}
+
+void WebServer::stop() {
+    server.end();
+    running = false;
 }
 
 inline String stringify(bool value) {

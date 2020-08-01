@@ -13,9 +13,13 @@ public:
 
     void begin();
 
+    void stop();
+
     static WebServer * getWebServer() { return inst; }
 
     bool isDownloading() { return downloading; }
+
+    bool isRunning() { return running; }
 
 private:
 
@@ -28,6 +32,7 @@ private:
     size_t uploadedFileSize;
     //String localUrlBase;
     bool downloading;
+    bool running;
     
     void registerOptoPrintApi() ;
     

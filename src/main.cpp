@@ -34,7 +34,7 @@ HardwareSerial PrinterSerial(2);
 #define PIN_RST_LCD 22
 
 
-U8G2_ST7920_128X64_F_HW_SPI u8g2_{U8G2_R1, PIN_CE_LCD, PIN_RST_LCD}; 
+U8G2_ST7920_128X64_F_HW_SPI u8g2_{U8G2_R3, PIN_CE_LCD, PIN_RST_LCD}; 
 U8G2 &Screen::u8g2 = u8g2_;
 
 
@@ -144,6 +144,7 @@ void deviceLoop(void* pvParams) {
     dev->add_observer(dro);
     dev->add_observer(fileChooser);
     dev->begin();
+    dev->enableStatusUpdates();
     
     while(1) {
         dev->loop();
@@ -168,6 +169,7 @@ void loop() {
 
     if(dev==nullptr) return;
 
+    /*
     static uint32_t nextSent;
     static size_t lv1,lv2;
     if(nextSent < millis()) {
@@ -177,6 +179,7 @@ void loop() {
         lv1=v1; lv2=v2;
         nextSent = millis()+100;
     }
+    */
 
     static String s;
     while(Serial.available()!=0) {

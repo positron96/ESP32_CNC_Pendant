@@ -7,11 +7,6 @@
 #include <etl/vector.h>
 
 
-#define FC_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
-#define FC_DEBUGFI(...)  { log_printf(__VA_ARGS__); }
-#define FC_DEBUGS(s)  { Serial.println(s); }
-
-
 class FileChooser: public Screen {
 public:
 
@@ -57,14 +52,14 @@ private:
                 if(file.isDirectory() ) name += "/";
                 files[i-startingIndex] = name;
                 //if(i==MAX_FILES) break;
-                FC_DEBUGF("loadDirContents: file %s\n", files[i-startingIndex].c_str() );
+                S_DEBUGF("loadDirContents: file %s\n", files[i-startingIndex].c_str() );
             }
             i++;
             file.close();
         }
 
         maxLines = i;
-        FC_DEBUGF("loadDirContents: file count %d\n", maxLines );
+        S_DEBUGF("loadDirContents: file count %d\n", maxLines );
         setDirty();
     }
 protected:
@@ -115,7 +110,7 @@ protected:
                 if(cDirName.charAt(cDirName.length()-1) != '/' ) cDirName+="/";
                 String newPath = cDirName+file;
                 if(isDir) {
-                    FC_DEBUGF("cdir is %s, file is %s\n", cDir.name(), file.c_str() );
+                    S_DEBUGF("cdir is %s, file is %s\n", cDir.name(), file.c_str() );
                     selLine = 0;
                     loadDirContents(SD.open(newPath), 0);
                 } else {
@@ -128,7 +123,7 @@ protected:
                 if(newPath=="/") {
                     if(returnCallback) returnCallback(false, "");
                 } else {
-                    FC_DEBUGF("moving up from %s\n", newPath.c_str() );
+                    S_DEBUGF("moving up from %s\n", newPath.c_str() );
                     int p = newPath.lastIndexOf("/");
                     if(p==0) newPath="/"; else newPath = newPath.substring(0, p);
                     selLine = 0;
@@ -139,7 +134,7 @@ protected:
             default: 
                 break;
         }
-        FC_DEBUGF("leaving bt, selLine is %d\n", selLine);
+        S_DEBUGF("leaving bt, selLine is %d\n", selLine);
         setDirty();
     }
 
