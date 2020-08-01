@@ -16,9 +16,9 @@
 
 const int MAX_DEVICE_OBSERVERS = 3;
 
-struct DeviceError{  int errCode;  };
+struct DeviceStatusEvent { bool panic; int statusField; };
 
-typedef etl::observer<const DeviceError&> DeviceObserver;
+typedef etl::observer<const DeviceStatusEvent&> DeviceObserver;
 
 class GCodeDevice : public etl::observable<DeviceObserver, MAX_DEVICE_OBSERVERS> {
 public:
@@ -74,8 +74,13 @@ public:
         sendCommands();
         receiveResponses();
         checkTimeout();
+
+        if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
+            requestStatusUpdate();
+            nextStatusRequestTime = millis() + 1000;
+        }
     }
-    virtual void sendCommands() = 0;
+    virtual void sendCommands();
     virtual void receiveResponses() = 0;
 
     float getX() { return x; }
@@ -100,7 +105,9 @@ public:
             (  buf1Len - xMessageBufferSpaceAvailable(buf1)  ); 
     }
 
-    virtual size_t getSentQueueLength() { return 0; }
+    size_t getSentQueueLength()  {
+        return sentCounter->bytes();
+    }
 
 protected:
     Stream * printerSerial;
@@ -109,6 +116,21 @@ protected:
     bool connected;
     String desc;
     size_t buf0Len, buf1Len;
+
+    static const size_t MAX_GCODE_LINE = 96;
+    char curUnsentCmd[MAX_GCODE_LINE+1];
+    size_t curUnsentCmdLen;
+
+    float x,y,z;
+    bool panic = false;
+    uint32_t nextStatusRequestTime;
+    MessageBufferHandle_t  buf0;
+    MessageBufferHandle_t  buf1;
+
+    bool xoff;
+    bool xoffEnabled = true;
+
+    Counter * sentCounter;
 
     void armRxTimeout() {
         //GD_DEBUGLN(enable ? "GCodeDevice::resetRxTimeout enable" : "GCodeDevice::resetRxTimeout disable");
@@ -133,24 +155,18 @@ protected:
         }
     }
 
-    virtual void cleanupQueue() { 
+    void cleanupQueue() { 
         if(buf1) xMessageBufferReset(buf1); 
         if(buf0) xMessageBufferReset(buf0); 
+        sentCounter->clear();
     }
 
-    float x,y,z;
-    bool panic = false;
-    uint32_t nextStatusRequestTime;
-    //AbstractQueue *queue;
-    MessageBufferHandle_t  buf0;
-    MessageBufferHandle_t  buf1;
-    bool xoff;
-    bool xoffEnabled = true;
+    virtual void requestStatusUpdate() = 0;
 
 private:
     static GCodeDevice *inst;
 
-    friend void loop();
+    //friend void loop();
 
 };
 
@@ -159,8 +175,11 @@ private:
 class GrblDevice : public GCodeDevice {
 public:
 
-    GrblDevice(Stream * s): GCodeDevice(s, 1000, 100) { desc = "Grbl"; };
-    GrblDevice() : GCodeDevice() {desc = "Grbl";}
+    GrblDevice(Stream * s): GCodeDevice(s, 100, 100) { 
+        desc = "Grbl"; 
+        sentCounter = &sentQueue; 
+    };
+    GrblDevice() : GCodeDevice() {desc = "Grbl"; sentCounter = &sentQueue; }
 
     virtual ~GrblDevice() {}
 
@@ -182,23 +201,15 @@ public:
         schedulePriorityCommand(String((char)0x18));
     }
 
-    virtual void sendCommands();
-
     virtual void receiveResponses();
 
-    virtual void loop() override {
-        GCodeDevice::loop();
-        if(nextPosRequestTime!=0 && millis() > nextPosRequestTime) {
-            schedulePriorityCommand("?");
-            nextPosRequestTime = millis() + 1000;
-        }
+    virtual void requestStatusUpdate() override {        
+        schedulePriorityCommand("?");
     }
     
 private:
     //DoubleCommandQueue<16, 100, 3> commandQueue;
-    CommandQueue<16,100> sentQueue;
-
-    uint32_t nextPosRequestTime;
+    SimpleCounter<16,100> sentQueue;
     
     String lastReceivedResponse;
 
@@ -215,9 +226,9 @@ public:
 
     MarlinDevice(Stream * s): GCodeDevice(s, 100, 200) { 
         desc="Marlin"; 
-
+        sentCounter = &sentQueue;
     }
-    MarlinDevice() : GCodeDevice() {desc = "Marlin";}
+    MarlinDevice() : GCodeDevice() {desc = "Marlin"; sentCounter = &sentQueue;}
 
     virtual ~MarlinDevice() {}
 
@@ -244,25 +255,12 @@ public:
         //schedulePriorityCommand("M112");
     }
 
-    virtual void cleanupQueue() {
-        GCodeDevice::cleanupQueue();
-        sentQueue.clear();
-    }
-
-    virtual void sendCommands();
-
     virtual void receiveResponses() ;
 
-    virtual void loop() override {
-        GCodeDevice::loop();
-        if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
-            schedulePriorityCommand("M114"); // temp
-            schedulePriorityCommand("M105"); // pos
-            nextStatusRequestTime = millis() + 1000;
-        }
+    void requestStatusUpdate() override {
+        schedulePriorityCommand("M114"); // temp
+        schedulePriorityCommand("M105"); // pos
     }
-
-    virtual size_t getSentQueueLength();
 
     struct Temperature {
         float actual;
@@ -280,18 +278,7 @@ private:
     static const size_t MAX_SENT_BYTES = 128;
     static const size_t MAX_SENT_LINES = 400;
 
-    static const size_t MAX_GCODE_LINE = 96;
-
-    //DoubleCommandQueue<30, 0, 2> commandQueue;
-    //CommandQueue<30,128> sentQueue;
-    //MessageBufferHandle_t sentQueue;
     SizedQueue<MAX_SENT_LINES, MAX_SENT_BYTES, MAX_GCODE_LINE> sentQueue;
-
-    char curUnsentCmd[MAX_GCODE_LINE+1];
-    size_t curUnsentCmdLen;
-    //char curSentCmd[MAX_GCODE_LINE+1];
-    //size_t curCmdLen;
-    
 
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;

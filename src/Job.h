@@ -57,9 +57,11 @@ public:
         curLineNum = 0;
     }
 
-    void notification(const DeviceError& err) override {
-        Serial.println("Device error, canceling job");
-        cancel();
+    void notification(const DeviceStatusEvent& e) override {
+        if(e.panic) {
+            Serial.println("Device error, canceling job");
+            cancel();
+        }
     }
 
     void start() { startTime = millis();  running = true;  notify_observers(JobStatusEvent{0}); }

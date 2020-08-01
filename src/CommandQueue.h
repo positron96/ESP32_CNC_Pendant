@@ -3,9 +3,32 @@
 
 #include <Arduino.h>
 #include <message_buffer.h>
+#include <etl/queue.h>
+
+class Counter {
+public:
+    virtual void clear() = 0;
+
+    virtual bool canPush(size_t len) const = 0;
+
+    virtual bool push(char* msg, size_t len) = 0;
+
+    virtual size_t size() const = 0;
+
+    virtual size_t getFreeLines() const = 0;
+
+    virtual size_t bytes() const = 0;
+
+    virtual size_t getFreeBytes() const = 0;
+
+    virtual size_t peek(char* &msg) = 0;
+
+    virtual void pop() = 0;
+};
+
 
 template< uint16_t LEN_LINES = 16, uint16_t LEN_BYTES = 128, uint8_t MAX_LINE_LEN = 100 >
-class SizedQueue {
+class SizedQueue: public Counter {
 public:
     SizedQueue() {
         freeLines = LEN_LINES;
@@ -13,7 +36,7 @@ public:
         buf = xMessageBufferCreateStatic(LEN_BYTES, data, &bufStruct);
     }
 
-    void clear() {
+    void clear() override {
         xMessageBufferReset(buf);
         havePeekedLine = false;
         peekedLineLen = 0;
@@ -21,12 +44,12 @@ public:
         freeBytes = LEN_BYTES;
     }
 
-    bool canPush(size_t len) const {
+    bool canPush(size_t len) const override {
         if(len>MAX_LINE_LEN) len = MAX_LINE_LEN;
         return freeBytes>len+1 && freeLines>0;
     }
 
-    bool push(char* msg, size_t len)  {
+    bool push(char* msg, size_t len)  override  {
         if(!canPush(len)) return false;
         if(len>MAX_LINE_LEN) len = MAX_LINE_LEN;
         assert( xMessageBufferSend(buf, msg, len, 0) );
@@ -35,23 +58,23 @@ public:
         return true;
     }
 
-    inline size_t size() const {
+    inline size_t size() const override  {
         return LEN_LINES-freeLines;
     }
 
-    inline size_t getFreeLines() const {
+    inline size_t getFreeLines() const override  {
         return freeLines;
     }
 
-    inline size_t bytes() const {
+    inline size_t bytes() const override  {
         return LEN_BYTES-freeBytes;
     }
 
-    inline size_t getFreeBytes() const {
+    inline size_t getFreeBytes() const  override {
         return freeBytes;
     }
 
-    size_t peek(char* &msg) {
+    size_t peek(char* &msg) override  {
         if(size() == 0) return 0;
         if(!havePeekedLine) {
             loadLineFromBuf();
@@ -61,24 +84,7 @@ public:
         return peekedLineLen;
     }
 
-/*    size_t pop(char * msg, size_t maxLen ) {
-        if(size() == 0) return 0;
-        if(!havePeekedLine) {
-            loadLineFromBuf();
-        }
-        size_t ret = peekedLineLen;
-        size_t minLen = std::min(maxLen, peekedLineLen);
-        memcpy( msg, peekedLine, minLen );
-        msg[minLen] = 0;
-        freeLines++;
-        freeBytes+=peekedLineLen+1;
-        havePeekedLine = false;
-        peekedLineLen = 0;
-        return ret;
-    }
-    */
-
-    void pop() {
+    void pop()  override {
         if(size() == 0) return;
         freeLines ++;
         if(havePeekedLine) {
@@ -112,163 +118,61 @@ private:
     }
 };
 
-class AbstractQueue {
+
+template< uint16_t LEN_LINES = 16, uint16_t LEN_BYTES = 128, uint8_t SUFFIX_LEN=1>
+class SimpleCounter : public Counter {
 public:
-    virtual void clear() = 0;
-    virtual int getFreeSlots()=0;
-    virtual uint16_t getRemoteFreeSpace()=0;
-    virtual bool push(const String command)=0;
-    virtual bool pushPriority(const String command) { return push(command); } ;
-    virtual bool isEmpty()=0;
-    virtual bool hasUnsent()=0;
-    virtual String peekUnsent()=0;
-    virtual bool canSend()=0;
-    virtual String markSent()=0;
-    bool allAcknowledged() { return !hasUnacknowledged(); };
-    virtual bool hasUnacknowledged()=0;
-    virtual String markAcknowledged()=0;
-    virtual String peekUnacknowledged()=0;
-};
-
-template< uint8_t LEN_LINES = 16, uint16_t LEN_BYTES = 0 >
-class CommandQueue: public AbstractQueue {
-public:
-    CommandQueue(): buf{""} {}
-
-    void clear() override {
-      head = tailSend = tailAck;
-    }
-    
-    int getFreeSlots() override {
-        int freeSlots = LEN_LINES - 1;
-
-        int next = tailAck;
-        while (next != head) {
-            --freeSlots;
-            next = nextSlot(next);
-        }
-
-        return freeSlots;
+    SimpleCounter() {
+        freeBytes = LEN_BYTES;
     }
 
-    uint16_t getRemoteFreeSpace() override  {
-        return remoteBufFree;
+    void clear()  override {
+        queue.clear();
+        freeBytes = LEN_BYTES;
     }
 
-    // Tries to Add a command to the queue, returns true if possible
-    bool push(const String command) override  {
-        int next = nextSlot(head);
-        if (next == tailAck || command == "")
-            return false;
+    bool canPush(size_t len) const override {
+        return queue.size()<LEN_LINES && freeBytes >= len+SUFFIX_LEN;
+    }
 
-        buf[head] = command;
-        head = next;
-
+    bool push(char* msg, size_t len) override {
+        if(!canPush(len)) return false;
+        queue.push(len);
+        freeBytes -= len+SUFFIX_LEN;
         return true;
     }
 
-    // Check if buffer is empty
-    bool isEmpty() override  {
-      return head == tailAck;
+    inline size_t size() const  override {
+        return queue.size();
     }
 
-    bool hasUnsent() override  {
-        return head != tailSend;
+    inline size_t getFreeLines() const  override {
+        return LEN_LINES - queue.size();
     }
 
-    // If there is a command pending to be sent returns it
-    String peekUnsent()  override {
-      return (tailSend == head) ? String() : buf[tailSend];
+    inline size_t bytes() const  override {
+        return LEN_BYTES-freeBytes;
     }
 
-    bool canSend() override {
-        if (tailSend == head) return false;
-        if(LEN_BYTES>0) {
-            const String command = buf[tailSend];
-            return remoteBufFree>=command.length(); 
-        }
-        return true;
+    inline size_t getFreeBytes() const  override {
+        return freeBytes;
     }
 
-    // Returns marked command, and advances to the next
-    String markSent()  override {
-        if (tailSend == head)
-            return String();
-
-        const String command = buf[tailSend];
-        const int ln = command.length();
-        if(LEN_BYTES>0) {
-            if(remoteBufFree<ln) 
-                return String();
-            remoteBufFree -= ln;
-        }
-        
-        tailSend = nextSlot(tailSend);
-        
-        return command;
+    size_t peek(char* &msg)  override {
+        if(queue.size()==0) return 0;
+        return queue.front();
     }
 
-    // Returns true if the command to be sent was the last sent (so there is no pending response)
-    bool hasUnacknowledged() override  {
-      return tailAck != tailSend;
+    void pop()  override {
+        if(queue.size()==0) return ;
+        size_t v = queue.front();
+        queue.pop();
+        freeBytes += v+SUFFIX_LEN;
     }
 
-    // Returns the last command sent if it was received by the printer, otherwise returns empty
-    String markAcknowledged() override  {
-        if (allAcknowledged())
-            return String();
-
-        const String command = buf[tailAck];
-        if(LEN_BYTES>0)  remoteBufFree += command.length();
-        tailAck = nextSlot(tailAck);
-
-        return command;
-    }
-
-    // Returns the last command sent if it was received by the printer, otherwise returns empty
-    String peekUnacknowledged() override  {
-        if (allAcknowledged())
-            return String();
-
-        return buf[tailAck];
-    }
 
 
 private:
-    int head, tailSend, tailAck;
-    String buf[LEN_LINES];
-    uint16_t remoteBufFree = LEN_BYTES;
-
-    // Returns the next buffer slot (after index slot) if it's in between the size of the buffer
-    int nextSlot(int index) {
-      int next = index + 1;
-  
-      return next >= LEN_LINES ? 0 : next;
-    }
-
-};
-
-
-template< uint8_t LEN_LINES = 16, uint16_t LEN_BYTES = 0, uint8_t LEN_LINES_PRIORITY=0 >
-class DoubleCommandQueue: public AbstractQueue {
-
-public:
-
-    virtual void clear() { queue0.clear(); queue1.clear(); }
-    virtual int getFreeSlots() { return queue1.getFreeSlots(); }
-    virtual uint16_t getRemoteFreeSpace() { return queue1.getRemoteFreeSpace();  }
-    virtual bool push(const String command) { return queue1.push(command); }
-    virtual bool pushPriority(const String command) {  return queue0.push(command); } 
-    virtual bool isEmpty() { return queue0.isEmpty() && queue1.isEmpty(); }
-    virtual bool hasUnsent() { return queue0.hasUnsent() && queue1.hasUnsent(); }
-    virtual bool canSend()      { if(queue0.hasUnsent()) return queue0.canSend();    else return queue1.canSend();    }
-    virtual String peekUnsent() { if(queue0.hasUnsent()) return queue0.peekUnsent(); else return queue1.peekUnsent(); }
-    virtual String markSent()   { if(queue0.hasUnsent()) return queue0.markSent();   else return queue1.markSent();   }
-    virtual bool hasUnacknowledged()    { return queue0.hasUnacknowledged() && queue1.hasUnacknowledged(); }
-    virtual String peekUnacknowledged() { if(queue0.hasUnacknowledged()) return queue0.peekUnacknowledged(); else return queue1.peekUnacknowledged(); }
-    virtual String markAcknowledged()   { if(queue0.hasUnacknowledged()) return queue0.markAcknowledged();   else return queue1.markAcknowledged(); }
-
-private:
-    CommandQueue<LEN_LINES, LEN_BYTES> queue1;
-    CommandQueue<LEN_LINES_PRIORITY, 0> queue0;
+    etl::queue<size_t, LEN_LINES> queue;
+    size_t freeBytes;
 };

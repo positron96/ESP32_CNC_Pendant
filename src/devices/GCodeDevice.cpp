@@ -109,103 +109,8 @@ void GCodeDevice::setDevice(GCodeDevice *dev) {
 */
 
 
+void GCodeDevice::sendCommands() {
 
-void GrblDevice::sendCommands() {
-
-    if(panic) return;
-
-    const int LEN = 100;
-    char msg[LEN+1];
-
-    size_t l = xMessageBufferReceive(buf0, msg, LEN, 0);
-    if(l==0) l = xMessageBufferReceive(buf1, msg, LEN, 0);
-    if(l==0) return;
-
-    msg[l] = 0;
-    if(sentQueue.getFreeSlots()>=1 && sentQueue.getRemoteFreeSpace()>l+2) {
-        sentQueue.push( String(msg) );
-        sentQueue.markSent();
-        printerSerial->write(msg, l);  
-        printerSerial->print('\n');
-        armRxTimeout();
-        //GD_DEBUGF("Sent '%s', free space %d\n", msg, sentQueue.getRemoteFreeSpace() );
-    } else {
-        GD_DEBUGF("Not sent, free space: %d\n", sentQueue.getRemoteFreeSpace());
-    }
-
-};
-
-void GrblDevice::receiveResponses() {
-
-    static int lineStartPos = 0;
-    static String resp;
-
-    while (printerSerial->available()) {
-        char ch = (char)printerSerial->read();
-        if (ch != '\n')
-            resp += ch;
-        else {
-            //bool incompleteResponse = false;
-            String responseDetail = "";
-
-            //DEBUGF("Got response %s\n", serialResponse.c_str() );
-
-            if (resp.startsWith("ok", lineStartPos)) {
-                sentQueue.markAcknowledged();
-                responseDetail = "ok";
-            } else 
-            if (resp.startsWith("error") ) {
-                sentQueue.markAcknowledged();
-                responseDetail = "error";
-                DeviceError err = { 1 };
-                notify_observers(err); panic=true;
-            } else
-            if ( resp.startsWith("<") ) {
-                parseGrblStatus(resp);
-            }
-            //GD_DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
-            updateRxTimeout(sentQueue.hasUnacknowledged() );
-            resp = "";
-        }
-    }
-
-};
-
-
-void GrblDevice::parseGrblStatus(String v) {
-    //<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
-    GD_DEBUGF("parsing %s\n", v.c_str() );
-    int pos;
-    pos = v.indexOf('|');
-    if(pos==-1) return;
-    String stat = v.substring(1,pos);
-    v = v.substring(pos+1);
-    if(v.startsWith("MPos:")) {
-        int p2 = v.indexOf(',');
-        x = v.substring(5, p2).toFloat();
-        v = v.substring(p2+1);
-        p2 = v.indexOf(',');
-        y = v.substring(0, p2).toFloat();
-        v = v.substring(p2+1);
-        p2 = v.indexOf('|');
-        z = v.substring(0, p2).toFloat();
-    }
-}
-
-
-
-
-
-
-
-#define TEMP_COMMAND      "M105"
-#define AUTOTEMP_COMMAND  "M155 S"
-
-size_t MarlinDevice::getSentQueueLength() {
-    return sentQueue.bytes();
-}
-
-void MarlinDevice::sendCommands() {
     if(panic) return;
     //bool loadedNewCmd=false;
 
@@ -234,17 +139,91 @@ void MarlinDevice::sendCommands() {
     }
     if(curUnsentCmdLen==0) return;
 
-    if( sentQueue.canPush(curUnsentCmdLen) ) {
-        sentQueue.push( curUnsentCmd, curUnsentCmdLen );
+    if( sentCounter->canPush(curUnsentCmdLen) ) {
+        sentCounter->push( curUnsentCmd, curUnsentCmdLen );
         printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
         printerSerial->print('\n');
         armRxTimeout();
-        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
+        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
         curUnsentCmdLen = 0;
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
     }
+
+}
+
+
+
+
+
+void GrblDevice::receiveResponses() {
+
+    static int lineStartPos = 0;
+    static String resp;
+
+    while (printerSerial->available()) {
+        char ch = (char)printerSerial->read();
+        if (ch != '\n')
+            resp += ch;
+        else {
+            //bool incompleteResponse = false;
+            String responseDetail = "";
+
+            //DEBUGF("Got response %s\n", serialResponse.c_str() );
+
+            if (resp.startsWith("ok", lineStartPos)) {
+                sentQueue.pop();
+                responseDetail = "ok";
+            } else 
+            if (resp.startsWith("error") ) {
+                sentQueue.pop();
+                responseDetail = "error";
+                panic = true;
+                notify_observers(DeviceStatusEvent{ .panic=true }); 
+            } else
+            if ( resp.startsWith("<") ) {
+                parseGrblStatus(resp);
+            }
+            //GD_DEBUGF("free space: %4d rx: %s\n", commandQueue.getRemoteFreeSpace(), resp.c_str() );
+            updateRxTimeout( sentQueue.size()>0 );
+            resp = "";
+        }
+    }
+
 };
+
+
+void GrblDevice::parseGrblStatus(String v) {
+    //<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
+    GD_DEBUGF("parsing %s\n", v.c_str() );
+    int pos;
+    pos = v.indexOf('|');
+    if(pos==-1) return;
+    String stat = v.substring(1,pos);
+    v = v.substring(pos+1);
+    if(v.startsWith("MPos:")) {
+        int p2 = v.indexOf(',');
+        x = v.substring(5, p2).toFloat();
+        v = v.substring(p2+1);
+        p2 = v.indexOf(',');
+        y = v.substring(0, p2).toFloat();
+        v = v.substring(p2+1);
+        p2 = v.indexOf('|');
+        z = v.substring(0, p2).toFloat();
+    }
+    notify_observers(DeviceStatusEvent{0});
+}
+
+
+
+
+
+
+
+#define TEMP_COMMAND      "M105"
+#define AUTOTEMP_COMMAND  "M155 S"
+
+
 
 bool startsWith(const char *str, const char *pre) {
     return strncmp(pre, str, strlen(pre)) == 0;
@@ -310,8 +289,8 @@ void MarlinDevice::receiveResponses() {
                     else if (startsWith(resp, "echo: cold extrusion prevented")) {
                         // To do: Pause sending gcode, or do something similar
                         sprintf(responseDetail, "cold extrusion");
-                        DeviceError err = { 1 };
-                        notify_observers(err); 
+                        
+                        notify_observers(DeviceStatusEvent{ .panic=true }); 
                     }
                     else if (startsWith(resp, "Error:") ) {
                         sprintf(responseDetail, "ERROR");
@@ -319,8 +298,8 @@ void MarlinDevice::receiveResponses() {
                         cleanupQueue();
                         panic = true;
 
-                        DeviceError err = { 1 };
-                        notify_observers(err); 
+                        
+                        notify_observers(DeviceStatusEvent{ .panic=true }); 
                     }
                     else {
                         //incompleteResponse = true;
@@ -367,6 +346,9 @@ bool MarlinDevice::parseTemperatures(const String &response) {
     if(ret) GD_DEBUGF("Parsed temp E:%d->%d  B:%d->%d\n", 
         (int)toolTemperatures[0].actual, (int)toolTemperatures[0].target,  
         (int)bedTemperature.actual, (int)bedTemperature.target );
+
+    notify_observers(DeviceStatusEvent{0});
+
     return ret;
 }
 
@@ -404,6 +386,7 @@ bool MarlinDevice::parsePosition(const char * str) {
     t = extractFloat(str, "E:");
     if(!isnan(t) ) ePos = t; else return false;
     GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
+    notify_observers(DeviceStatusEvent{0});
     return true;
 }
 
@@ -419,6 +402,7 @@ bool MarlinDevice::parseG0G1(const char *str) {
     t = extractFloat(str, "E");
     if(!isnan(t) ) ePos = t; else return false;
     GD_DEBUGF("Parsed pos: X: %f, Y: %f, Z: %f, E: %f\n", x,y,z,ePos);
+    notify_observers(DeviceStatusEvent{0});
     return true;
 }
 
@@ -431,6 +415,7 @@ bool MarlinDevice::parseM115(const String &str) {
     fwBuildPercentCap = extractM115Bool(str, "Cap:BUILD_PERCENT");
     GD_DEBUGF("Parsed M115: desc=%s, extruders:%d, autotemp:%d, progress:%d, buildPercent:%d\n", 
         desc.c_str(), fwExtruders, fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap );
+    notify_observers(DeviceStatusEvent{0});
     return true;
 }
 

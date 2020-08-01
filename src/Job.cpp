@@ -16,7 +16,7 @@ void Job::readNextLine() {
     }
     while( gcodeFile.available()>0 ) {
         int rd = gcodeFile.read();
-        filePos++;
+        filePos++;  notify_observers(JobStatusEvent{0});
         if(rd=='\n' || rd=='\r') {
             if(curLinePos!=0) break; // if it's an empty string or LF after last CR, just continue reading
         } else {

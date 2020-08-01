@@ -34,8 +34,8 @@ HardwareSerial PrinterSerial(2);
 #define PIN_RST_LCD 22
 
 
-U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD); 
-U8G2 &Screen::u8g2{u8g2};
+U8G2_ST7920_128X64_F_HW_SPI u8g2_{U8G2_R1, PIN_CE_LCD, PIN_RST_LCD}; 
+U8G2 &Screen::u8g2 = u8g2_;
 
 
 WebServer server;
@@ -50,7 +50,7 @@ enum class Mode {
 
 FileChooser fileChooser;
 DRO dro;
-Screen *cScreen;
+Screen *cScreen = nullptr;
 Mode cMode = Mode::DRO;
 
 
@@ -83,12 +83,12 @@ void setup() {
     //PrinterSerial.begin(250000);
 
     Serial.begin(115200);
-
-    u8g2.begin();
-    u8g2.setBusClock(600000);
-    u8g2.setFont(u8g2_font_5x8_tr);
-    u8g2.setFontPosTop();
-    u8g2.setFontMode(1);
+ 
+    u8g2_.begin();
+    u8g2_.setBusClock(600000);
+    u8g2_.setFont(u8g2_font_5x8_tr);
+    u8g2_.setFontPosTop();
+    u8g2_.setFontMode(1);
 
     digitalWrite(PIN_RST_LCD, LOW);
     delay(100);
@@ -110,7 +110,10 @@ void setup() {
 
     cScreen = &dro;
 
-    dro.begin();    
+    job->add_observer( dro );
+    job->add_observer( fileChooser );
+
+    dro.begin();
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -118,6 +121,7 @@ void setup() {
             job->resume();
             
             cMode = Mode::DRO;
+            cScreen = &dro;
             dev->enableStatusUpdates();
         }
     } );
@@ -137,9 +141,9 @@ void deviceLoop(void* pvParams) {
     
     //GCodeDevice::setDevice(dev);
     dev->add_observer( *job );
+    dev->add_observer(dro);
+    dev->add_observer(fileChooser);
     dev->begin();
-    job->add_observer( dro );
-    job->add_observer( fileChooser );
     
     while(1) {
         dev->loop();
@@ -150,7 +154,6 @@ void deviceLoop(void* pvParams) {
 void readPots() {
     Screen::potVal[0] = analogRead(PIN_POT1);
     Screen::potVal[1] = analogRead(PIN_POT2);
-   
 }
 
 void loop() {

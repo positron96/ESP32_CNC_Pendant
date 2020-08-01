@@ -43,12 +43,18 @@ public:
     
     //virtual void begin() {};
 
-    //virtual void loop() {};
+    void loop() override {
+        if(millis()>nextRefresh) {
+            nextRefresh = millis() + 500;
+            setDirty();
+        }
+    };
 
 private:
 
     JogAxis cAxis;
     JogDist cDist;
+    uint32_t nextRefresh;
 
 protected:
 
@@ -68,7 +74,7 @@ protected:
         snprintf(str, LEN, "Y: %.3f", dev->getY() );   u8g2.drawStr(10, y, str ); y+=h;
         snprintf(str, LEN, "Z: %.3f", dev->getZ() );   u8g2.drawStr(10, y, str ); y+=h;
 
-        snprintf(str, LEN, "x%3f", distVal(cDist)  );  u8g2.drawStr(10, y, str);
+        snprintf(str, LEN, "x%3f", distVal(cDist) );   u8g2.drawStr(10, y, str);
         
 
         //Job *job = Job::getJob();
@@ -82,22 +88,23 @@ protected:
     void onPotValueChanged(int pot, int v) override {
         //  center lines : 2660    3480    4095
         // borders:            3000    3700
+        bool ch=false;
         if(pot==0) {
-            if( cAxis==JogAxis::X && v>3000+100) cAxis=JogAxis::Y;
-            if( cAxis==JogAxis::Y && v>3700+100) cAxis=JogAxis::Z;
-            if( cAxis==JogAxis::Z && v<3700-100) cAxis=JogAxis::Y;
-            if( cAxis==JogAxis::Y && v<3000-100) cAxis=JogAxis::X;
+            if( cAxis==JogAxis::X && v>3000+100) {cAxis=JogAxis::Y; ch=true;}
+            if( cAxis==JogAxis::Y && v>3700+100) {cAxis=JogAxis::Z; ch=true;}
+            if( cAxis==JogAxis::Z && v<3700-100) {cAxis=JogAxis::Y; ch=true;}
+            if( cAxis==JogAxis::Y && v<3000-100) {cAxis=JogAxis::X; ch=true;}
         } else
         if(pot==1) {
 
             // centers:      950    1620     2420
             // borders:         1300    2000            
-            if( cDist==JogDist::_01 && v>1300+100) cDist=JogDist::_1;
-            if( cDist==JogDist::_1  && v>2000+100) cDist=JogDist::_10;
-            if( cDist==JogDist::_10 && v<2000-100) cDist=JogDist::_1;
-            if( cDist==JogDist::_1  && v<1300-100) cDist=JogDist::_01;
+            if( cDist==JogDist::_01 && v>1300+100) {cDist=JogDist::_1; ch=true;}
+            if( cDist==JogDist::_1  && v>2000+100) {cDist=JogDist::_10; ch=true;}
+            if( cDist==JogDist::_10 && v<2000-100) {cDist=JogDist::_1; ch=true;}
+            if( cDist==JogDist::_1  && v<1300-100) {cDist=JogDist::_01; ch=true;}
         }
-        setDirty();
+        if(ch) setDirty();
     }
 
     virtual void onButtonPressed(Button bt) override {

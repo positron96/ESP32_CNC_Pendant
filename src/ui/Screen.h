@@ -14,7 +14,7 @@ enum class Button {
 };
 
 
-class Screen : public JobObserver {
+class Screen : public JobObserver, public DeviceObserver {
 public:
     static U8G2 &u8g2;
     static bool buttonPressed[3];
@@ -27,64 +27,19 @@ public:
     void notification(JobStatusEvent e) override {
         setDirty();
     }
+    void notification(const DeviceStatusEvent &e) override {
+        setDirty();
+    }
 
-    virtual void begin() {}
+    virtual void begin() { dirty=true; }
 
     virtual void loop() {}
 
-    void draw() {
-        if(!dirty) return;
-        u8g2.clearBuffer();
-        drawStatusBar();
-        drawContents();
-        u8g2.sendBuffer();
-        dirty = false;
-    }
+    void draw();
 
-    void processInput() {
-        processEnc();
-        processButtons();
-        processPot();
-    }
+    void processInput();
 
-    static void drawStatusBar() {
-
-        u8g2.setFont(u8g2_font_5x8_tr);
-
-        // device status
-        GCodeDevice *dev = GCodeDevice::getDevice();
-        if(dev==nullptr) u8g2.drawGlyph(0,0, '?');
-        else {
-            char s = dev->getDescrption().charAt(0);
-            if(dev->isConnected() ) s=toupper(s); else s=tolower(s);
-            if(dev->isInPanic() ) s='!';            
-            u8g2.drawGlyph(0,0, s );
-        }
-
-        // job
-        Job *job = Job::getJob();
-        char str[20];
-        if(job->isRunning() ) {
-            snprintf(str, 20, ">%.1f%%", job->getPercentage() );
-            if(job->isPaused() ) {
-                str[0] = ' ';
-            }
-        }
-        int w = u8g2.getStrWidth(str);
-        u8g2.drawStr(u8g2.getWidth()-w, 0, str);
-        
-
-        // download
-        WebServer *ws = WebServer::getWebServer();
-        if(ws!=nullptr) {
-            if(ws->isDownloading() ) u8g2.drawGlyph(10, 0, 'W');
-            else u8g2.drawGlyph(10,0, 'w');
-        }
-
-
-        // line
-        u8g2.drawHLine(0, STATUS_BAR_HEIGHT, u8g2.getWidth() );
-    }
+    static void drawStatusBar();
 
 protected:
 
