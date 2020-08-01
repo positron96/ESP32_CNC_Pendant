@@ -96,16 +96,21 @@ void WebServer::registerOptoPrintApi() {
     server.on("/api/connection", HTTP_GET, [](AsyncWebServerRequest * request) {
         Serial.printf("/api/connection");
         // http://docs.octoprint.org/en/master/api/connection.html#get-connection-settings
+        String baudsString; baudsString.reserve(50);
+        for(int i=0; i<DeviceDetector::N_SERIAL_BAUDS; i++) {
+            if(i!=0) baudsString += ", ";
+            baudsString += String(DeviceDetector::serialBauds[i]);
+        }
         request->send(200, "application/json", "{\r\n"
                 "  \"current\": {\r\n"
                 "    \"state\": \"" + getStateText() + "\",\r\n"
                 "    \"port\": \"Serial\",\r\n"
-                "    \"baudrate\": 115200,\r\n"
+                "    \"baudrate\": " + DeviceDetector::serialBaud + ",\r\n"
                 "    \"printerProfile\": \"Default\"\r\n"
                 "  },\r\n"
                 "  \"options\": {\r\n"
                 "    \"ports\": \"Serial\",\r\n"
-                "    \"baudrates\": [115200, 250000],\r\n"
+                "    \"baudrates\": ["+baudsString+"],\r\n"
                 "    \"printerProfiles\": \"Default\",\r\n"
                 "    \"portPreference\": \"Serial\",\r\n"
                 "    \"baudratePreference\": 115200,\r\n"
@@ -371,15 +376,21 @@ void WebServer::handleUpload(AsyncWebServerRequest *request, String filename, si
     static File file;
 
     if (index==0) { // first chunk
-        downloading = true;
-        Serial.printf("Uploading to file %s\n", filename.c_str() );
         uploadedFilePath = filename;
+        uploadedFileSize = 0;
 
         if (uploadedFilePath.length() > 255)//storageFS.getMaxPathLength())
             uploadedFilePath = "/cached.gco";   // TODO maybe a different solution
+
+        Serial.printf("Uploading to file %s\n", filename.c_str() );
+
         if(SD.exists(uploadedFilePath)) SD.remove(uploadedFilePath);
         file = SD.open(uploadedFilePath, "w"); // create or truncate file
+        if(!file) { request->send(400, "text/plain", "Could not open file"); return; }
+        downloading = true;
     }
+
+    if(!file) return;
 
     //Serial.printf("uploading pos %d if size %d to %s\n", index, len, uploadedFullname.c_str() );
     file.write(data, len);

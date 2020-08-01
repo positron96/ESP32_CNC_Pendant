@@ -14,13 +14,13 @@
 
 #define KEEPALIVE_INTERVAL 5000    // Marlin defaults to 2 seconds, get a little of margin
 
-const int MAX_MOUSE_OBSERVERS = 3;
+const int MAX_DEVICE_OBSERVERS = 3;
 
 struct DeviceError{  int errCode;  };
 
 typedef etl::observer<const DeviceError&> DeviceObserver;
 
-class GCodeDevice : public etl::observable<DeviceObserver, MAX_MOUSE_OBSERVERS> {
+class GCodeDevice : public etl::observable<DeviceObserver, MAX_DEVICE_OBSERVERS> {
 public:
 
     static GCodeDevice *getDevice();
@@ -340,11 +340,15 @@ public:
 
     constexpr static int N_TYPES = 2;
 
+    constexpr static int N_SERIAL_BAUDS = 3;
+
     static const uint32_t serialBauds[];   // Marlin valid bauds (removed very low bauds; roughly ordered by popularity to speed things up)
 
     static GCodeDevice* detectPrinter(HardwareSerial &PrinterSerial);
 
     static GCodeDevice* detectPrinterAttempt(HardwareSerial &PrinterSerial, uint32_t speed, uint8_t type);
+
+    static uint32_t serialBaud;    
 
 private:
     static void sendProbe(uint8_t i, Stream &serial);

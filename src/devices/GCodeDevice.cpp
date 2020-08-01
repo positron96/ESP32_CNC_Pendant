@@ -8,6 +8,8 @@ static char deviceBuffer[MAX(sizeof(MarlinDevice), sizeof(GrblDevice))];
 
 const uint32_t DeviceDetector::serialBauds[] = { 115200, 250000, 57600 }; 
 
+uint32_t DeviceDetector::serialBaud = 0;
+
 void DeviceDetector::sendProbe(uint8_t i, Stream &serial) {
     switch(i) {
         case 0: 
@@ -45,6 +47,7 @@ GCodeDevice* DeviceDetector::checkProbe(uint8_t i, String v, Stream &serial) {
 }
 
 GCodeDevice* DeviceDetector::detectPrinterAttempt(HardwareSerial &printerSerial, uint32_t speed, uint8_t type) {
+    serialBaud = speed;
     for(uint8_t retry=0; retry<2; retry++) {
         GD_DEBUGF("attempt %d, speed %d, type %d\n", retry, speed, type);
         //PrinterSerial.end();
