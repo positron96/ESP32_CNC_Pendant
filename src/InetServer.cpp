@@ -61,15 +61,15 @@ inline String stringify(bool value) {
   return value ? "true" : "false";
 }
 
-String getState(Job * job = nullptr, MarlinDevice * dev = nullptr) {
+String getStateText(Job * job = nullptr, MarlinDevice * dev = nullptr) {
     if(job==nullptr) job=Job::getJob();
     if(dev==nullptr) dev=static_cast<MarlinDevice*>( GCodeDevice::getDevice() );
-    if(dev==nullptr) return "Offline";
+    if(dev==nullptr) return "Discovering";
     if(dev->isInPanic()) return "Error";
     if(!dev->isConnected() ) return "Offline";
     if(job->isPaused()) return "Paused";
     if(job->isRunning()) return "Printing";
-    //if(job->)
+    if(job->isCancelled()) {if(dev->getSentQueueLength()==0) return "Cancelled"; else return "Cancelling";}
     return "Operational";
 }
 
@@ -96,7 +96,7 @@ void WebServer::registerOptoPrintApi() {
         // http://docs.octoprint.org/en/master/api/connection.html#get-connection-settings
         request->send(200, "application/json", "{\r\n"
                 "  \"current\": {\r\n"
-                "    \"state\": \"" + getState() + "\",\r\n"
+                "    \"state\": \"" + getStateText() + "\",\r\n"
                 "    \"port\": \"Serial\",\r\n"
                 "    \"baudrate\": 115200,\r\n"
                 "    \"printerProfile\": \"Default\"\r\n"
@@ -223,7 +223,7 @@ void WebServer::registerOptoPrintApi() {
                 "    \"printTimeLeft\": " + String(printTimeLeft) + ",\r\n"
                 "    \"printTimeLeftOrigin\": \"linear\"\r\n"
                 "  },\r\n"
-                "  \"state\": \"" + getState(job) + "\"\r\n"
+                "  \"state\": \"" + getStateText(job) + "\"\r\n"
                 "}");
     });
 
@@ -252,21 +252,25 @@ void WebServer::registerOptoPrintApi() {
         Job * job = Job::getJob();
         MarlinDevice * dev = static_cast<MarlinDevice*>(GCodeDevice::getDevice());
         bool connected = dev==nullptr ? false : dev->isConnected();
+        bool queueEmpty = dev==nullptr ? true : dev->getSentQueueLength()==0;
+        bool error = dev==nullptr ? false : dev->isInPanic();
         String readyState = stringify(connected);
+
         String message = "{\r\n"
                 "  \"state\": {\r\n"
-                "    \"text\": \"" + getState(job,dev) + "\",\r\n"
+                "    \"text\": \"" + getStateText(job,dev) + "\",\r\n"
+                "    \"sentQueueLength: " + (dev!=nullptr?dev->getSentQueueLength():0) + ",\r\n"
+                "    \"queueLength: " + (dev!=nullptr?dev->getQueueLength():0) + ",\r\n"
                 "    \"flags\": {\r\n"
                 "      \"operational\": " + readyState + ",\r\n"
                 "      \"paused\": " + stringify(job->isPaused()) + ",\r\n"
                 "      \"printing\": " + stringify(job->isRunning()) + ",\r\n"
-                "      \"pausing\": false,\r\n"
-                //"      \"cancelling\": " + stringify(cancelPrint) + ",\r\n"
-                "      \"cancelling\": false,\r\n"
+                "      \"pausing\": " + stringify(job->isPaused() && !queueEmpty ) + ",\r\n"
+                "      \"cancelling\": " + stringify(job->isCancelled() && !queueEmpty ) + ",\r\n"
                 "      \"sdReady\": false,\r\n"
-                "      \"error\": false,\r\n"
+                "      \"error\": " + stringify(error) + ",\r\n"
                 "      \"ready\": " + readyState + ",\r\n"
-                "      \"closedOrError\": " + stringify(!connected) + "\r\n"
+                "      \"closedOrError\": " + stringify(!connected | error) + "\r\n"
                 "    }\r\n"
                 "  },\r\n";
                 
@@ -428,7 +432,8 @@ void WebServer::registerWebBrowser() {
             if(f.isDirectory())
                 resp += "<li><a href=\"/fs"+String(f.name())+"/\">"+fname+"</a></li>\n";
             else 
-                resp += "<li><a href=\"/fs"+String(f.name())+"\">"+fname+"</a> "+f.size()+"B</li>\n";
+                resp += "<li><a href=\"/fs"+String(f.name())+"\">"+fname+"</a> "+f.size()+"B "+
+                        +"[<a href=\"/api2/print?file="+String(f.name())+"\">print</a>]</li>\n";
             f.close();
         }
         dir.close();
@@ -447,4 +452,32 @@ void WebServer::registerWebBrowser() {
         }
         handleUpload(req, filename, index, data, len, final);
     } );
+
+    server.on("/api2/print", HTTP_GET, [](AsyncWebServerRequest * req) {
+        if(!req->hasParam("file")) {
+            Serial.printf("GET %s\n", req->url().c_str() );
+            req->send(400, "text/html", "no file paraameter");
+            return;
+        }
+        String file = req->getParam("file")->value();
+        Serial.printf("GET %s, file=%s\n", req->url().c_str(), file.c_str() );
+        GCodeDevice *dev = GCodeDevice::getDevice();
+        if(dev==nullptr) {
+            req->send(409, "text/html", "no printer");
+            return;
+        }
+        Job *job = Job::getJob();
+        if(job->isValid() ) { 
+            req->send(409, "text/html", "Job already set");
+            return;
+        }
+        job->setFile(file);
+        if(!job->isValid() ){ 
+            req->send(400, "text/html", "File not found or invalid");
+            return;
+        }
+        job->start();
+        req->send(200, "text/html", "ok");
+    } );
+
 }

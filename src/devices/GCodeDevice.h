@@ -6,13 +6,13 @@
 #include "CommandQueue.h"
 #include <message_buffer.h>
 
+//#define ADD_LINECOMMENTS
 
-
-#define GD_DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
+#define GD_DEBUGF(...) { Serial.printf(__VA_ARGS__); }
 #define GD_DEBUGS(s)  { Serial.println(s); }
 #define GD_DEBUGLN GD_DEBUGS
 
-#define KEEPALIVE_INTERVAL 2500    // Marlin defaults to 2 seconds, get a little of margin
+#define KEEPALIVE_INTERVAL 5000    // Marlin defaults to 2 seconds, get a little of margin
 
 const int MAX_MOUSE_OBSERVERS = 3;
 
@@ -29,6 +29,8 @@ public:
     GCodeDevice(Stream * s, size_t priorityBufSize=0, size_t bufSize=0): printerSerial(s), connected(false)  {
         if(priorityBufSize!=0) buf0 = xMessageBufferCreate(priorityBufSize);
         if(bufSize!=0) buf1 = xMessageBufferCreate(bufSize);
+        buf0Len = bufSize;
+        buf1Len = priorityBufSize;
     }
     GCodeDevice() : printerSerial(nullptr), connected(false) {}
     virtual ~GCodeDevice() { clear_observers(); }
@@ -44,13 +46,24 @@ public:
         if(cmd.length()==0) return true;
         return xMessageBufferSend(buf1, cmd.c_str(), cmd.length(), 0) != 0;
     };
+    virtual bool scheduleCommand(char* cmd, size_t len) {
+        if(panic) return false;
+        if(!buf1) return false;
+        if(len==0) return false;
+        return xMessageBufferSend(buf1, cmd, len, 0) != 0;
+    };
     virtual bool schedulePriorityCommand(String cmd) { 
         if(panic) return false;
         if(!buf0) return false;
-        if(cmd.length()==0) return true;
+        if(cmd.length()==0) return false;
         return xMessageBufferSend(buf0, cmd.c_str(), cmd.length(), 0) != 0;
     } ;
-    virtual bool canSchedule(size_t len) { if(!buf1) return false; else return xMessageBufferSpaceAvailable(buf1) > len; }
+    virtual bool canSchedule(size_t len) { 
+        if(panic) return false;
+        if(!buf1) return false; 
+        if(len==0) return false;
+        return xMessageBufferSpaceAvailable(buf1) > len + 2; 
+    }
 
     virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
 
@@ -79,12 +92,20 @@ public:
 
     String getDescrption() { return desc; }
 
+    size_t getQueueLength() {  
+        return (  buf0Len - xMessageBufferSpaceAvailable(buf0)  ) + 
+            (  buf1Len - xMessageBufferSpaceAvailable(buf1)  ); 
+    }
+
+    virtual size_t getSentQueueLength() { return 0; }
+
 protected:
     Stream * printerSerial;
 
     uint32_t serialRxTimeout;
     bool connected;
     String desc;
+    size_t buf0Len, buf1Len;
 
     void armRxTimeout() {
         //GD_DEBUGLN(enable ? "GCodeDevice::resetRxTimeout enable" : "GCodeDevice::resetRxTimeout disable");
@@ -102,14 +123,17 @@ protected:
     void checkTimeout() {
         if( !isRxTimeoutEnabled() ) return;
         if (millis() > serialRxTimeout) { 
-            connected = false; 
             GD_DEBUGLN("GCodeDevice::checkTimeout fired"); 
+            connected = false; 
             cleanupQueue();
             disarmRxTimeout(); 
         }
     }
 
-    virtual void cleanupQueue() { if(buf1) xMessageBufferReset(buf1); if(buf0) xMessageBufferReset(buf0); }
+    virtual void cleanupQueue() { 
+        if(buf1) xMessageBufferReset(buf1); 
+        if(buf0) xMessageBufferReset(buf0); 
+    }
 
     float x,y,z;
     bool panic = false;
@@ -117,9 +141,13 @@ protected:
     //AbstractQueue *queue;
     MessageBufferHandle_t  buf0;
     MessageBufferHandle_t  buf1;
+    bool xoff;
+    bool xoffEnabled = true;
 
 private:
     static GCodeDevice *device;
+
+    friend void loop();
 
 };
 
@@ -182,7 +210,10 @@ class MarlinDevice: public GCodeDevice {
 
 public:
 
-    MarlinDevice(Stream * s): GCodeDevice(s, 1000, 100) { desc="Marlin"; }
+    MarlinDevice(Stream * s): GCodeDevice(s, 100, 200) { 
+        desc="Marlin"; 
+
+    }
     MarlinDevice() : GCodeDevice() {desc = "Marlin";}
 
     virtual ~MarlinDevice() {}
@@ -190,7 +221,7 @@ public:
     virtual bool jog(uint8_t axis, float dist, int feed) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z', 'E'};
         char msg[81]; snprintf(msg, 81, "G0 F%d %c%04f", feed, AXIS[axis], dist);
-        if(  xMessageBufferSpacesAvailable(buf1)>strlen(msg)+6+4 ) return false;
+        if(  xMessageBufferSpacesAvailable(buf1)>strlen(msg)+3+3+6 ) return false;
         schedulePriorityCommand("G91");
         schedulePriorityCommand(msg);
         schedulePriorityCommand("G90");
@@ -199,14 +230,20 @@ public:
 
     virtual void begin() {
         GCodeDevice::begin();
-        schedulePriorityCommand("M115");
-        schedulePriorityCommand("M114");
-        schedulePriorityCommand("M104");
+        if(! schedulePriorityCommand("M115") ) GD_DEBUGS("could not schedule M115");
+        if(! schedulePriorityCommand("M114") ) GD_DEBUGS("could not schedule M114");
+        if(! schedulePriorityCommand("M105") ) GD_DEBUGS("could not schedule M105");
     }
 
     virtual void reset() {        
         cleanupQueue();
-        schedulePriorityCommand("M112");
+        panic = false;
+        //schedulePriorityCommand("M112");
+    }
+
+    virtual void cleanupQueue() {
+        GCodeDevice::cleanupQueue();
+        sentQueue.clear();
     }
 
     virtual void sendCommands();
@@ -222,6 +259,8 @@ public:
         }
     }
 
+    virtual size_t getSentQueueLength();
+
     struct Temperature {
         float actual;
         float target;
@@ -235,8 +274,21 @@ private:
 
     static const int MAX_SUPPORTED_EXTRUDERS = 3;
 
+    static const size_t MAX_SENT_BYTES = 128;
+    static const size_t MAX_SENT_LINES = 400;
+
+    static const size_t MAX_GCODE_LINE = 96;
+
     //DoubleCommandQueue<30, 0, 2> commandQueue;
-    CommandQueue<30,128> sentQueue;
+    //CommandQueue<30,128> sentQueue;
+    //MessageBufferHandle_t sentQueue;
+    SizedQueue<MAX_SENT_LINES, MAX_SENT_BYTES, MAX_GCODE_LINE> sentQueue;
+
+    char curUnsentCmd[MAX_GCODE_LINE+1];
+    size_t curUnsentCmdLen;
+    //char curSentCmd[MAX_GCODE_LINE+1];
+    //size_t curCmdLen;
+    
 
     int fwExtruders = 1;
     bool fwAutoreportTempCap, fwProgressCap, fwBuildPercentCap;
@@ -255,12 +307,14 @@ private:
     
     // Parse position responses from printer like
     // X:-33.00 Y:-10.00 Z:5.00 E:37.95 Count X:-3300 Y:-1000 Z:2000
-    bool parsePosition(const String &str);
+    bool parsePosition(const char *str);
 
     bool parseM115(const String &str);
+    bool parseG0G1(const char * str);
 
 
     static float extractFloat(const String &str, const String key) ;
+    static float extractFloat(const char * str, const char* key) ;
     
     static bool isFloat(const String value);
 

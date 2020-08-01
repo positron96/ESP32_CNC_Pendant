@@ -34,12 +34,14 @@ all the API functions to use the MPU wrappers.  That should only be done when
 task.h is included from an application file. */
 #define MPU_WRAPPERS_INCLUDED_FROM_API_FILE
 
+#define CONFIG_SUPPORT_STATIC_ALLOCATION 1
+
 /* FreeRTOS includes. */
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "stream_buffer.h"
 
-#define configMESSAGE_BUFFER_LENGTH_TYPE uint16_t
+#define configMESSAGE_BUFFER_LENGTH_TYPE uint8_t
 #define traceSTREAM_BUFFER_CREATE(...)
 #define traceSTREAM_BUFFER_CREATE_FAILED(...)
 #define traceSTREAM_BUFFER_DELETE(...)
@@ -52,8 +54,9 @@ task.h is included from an application file. */
 #define traceSTREAM_BUFFER_RECEIVE_FAILED(...)
 #define traceSTREAM_BUFFER_RECEIVE_FROM_ISR(...)
 #define traceSTREAM_BUFFER_RESET(...)
+#define traceSTREAM_BUFFER_CREATE_STATIC_FAILED(...)
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
- #define configMIN( a, b )    ( ( (a) < (b) ) ? (a) : (b) )
+#define configMIN( a, b )    ( ( (a) < (b) ) ? (a) : (b) )
 
 #if( configUSE_TASK_NOTIFICATIONS != 1 )
 	#error configUSE_TASK_NOTIFICATIONS must be set to 1 to build stream_buffer.c

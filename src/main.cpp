@@ -11,6 +11,9 @@
 
 HardwareSerial PrinterSerial(2);
 
+#ifdef DEBUGF
+  #undef DEBUGF
+#endif
 #define DEBUGF(...)  { Serial.printf(__VA_ARGS__); }
 #define DEBUGFI(...)  { log_printf(__VA_ARGS__); }
 #define DEBUGS(s)  { Serial.println(s); }
@@ -133,6 +136,7 @@ void setup() {
     
     job = Job::getJob();
 
+    /*
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -143,12 +147,25 @@ void setup() {
             dev->enableStatusUpdates();
         }
     } );
+    */
 
     server.begin();
     
 }
 
 const uint32_t serialBauds[] = { 115200, 250000, 57600 };    // Marlin valid bauds (removed very low bauds; roughly ordered by popularity to speed things up)
+
+String readStringUntil(char terminator, size_t timeout) {
+    String ret;
+    timeout += millis();
+    char c;
+    int len = PrinterSerial.readBytes(&c, 1);
+    while(len>0 && c != terminator && millis()<timeout) {
+        ret += (char) c;
+        len = PrinterSerial.readBytes(&c, 1);
+    }
+    return ret;
+}
 
 bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
     for(uint8_t retry=0; retry<2; retry++) {
@@ -157,8 +174,8 @@ bool detectPrinterAttempt(uint32_t speed, uint8_t type) {
         //PrinterSerial.begin(speed);
         PrinterSerial.updateBaudRate(speed);
         while(PrinterSerial.available()) PrinterSerial.read();
-        DeviceDetector::sendProbe(type, PrinterSerial);            
-        String v = PrinterSerial.readStringUntil('\n'); v.trim();
+        DeviceDetector::sendProbe(type, PrinterSerial);
+        String v = readStringUntil('\n', 1000); v.trim();
         DEBUGF("Got response '%s'\n", v.c_str() );
         if(v) {
             dev = DeviceDetector::checkProbe(type, v, PrinterSerial);
@@ -185,8 +202,8 @@ void detectPrinter() {
 
 void deviceLoop(void* pvParams) {
     PrinterSerial.begin(115200);
-    PrinterSerial.setTimeout(2000);
-    if(! detectPrinterAttempt(250000, 1) ) {
+    PrinterSerial.setTimeout(1000);
+    if(! detectPrinterAttempt(115200, 1) ) {
         detectPrinter();
     }
     while(1) {
@@ -287,11 +304,21 @@ void loop() {
 
     if(dev==nullptr) return;
 
+    static uint32_t nextSent;
+    static size_t lv1,lv2;
+    if(nextSent < millis()) {
+        size_t v1 = dev->getQueueLength(), v2 = dev->getSentQueueLength();
+        if(v1!=lv1 || v2!=lv2)
+            DEBUGF("queue: %d, sent: %d\n", v1, v2 );
+        lv1=v1; lv2=v2;
+        nextSent = millis()+100;
+    }
+
     static String s;
     while(Serial.available()!=0) {
         char c = Serial.read();
         if(c=='\n' || c=='\r') { 
-            if(s.length()>0) DEBUGF("send %s, result: %d\n", s.c_str(), dev->scheduleCommand(s) ); 
+            if(s.length()>0) DEBUGF("send %s, result: %d\n", s.c_str(), dev->schedulePriorityCommand(s) ); 
             s=""; 
             continue; 
         }

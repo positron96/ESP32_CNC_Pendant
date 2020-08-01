@@ -5,6 +5,27 @@
 
 #include "devices/GCodeDevice.h"
 
+//#define ADD_LINENUMBERS 
+
+/**
+ * State diagram:
+ * ```
+ * non valid   <-------------------+
+ *    |                            |
+ *    | (.setFile)                 |
+ *    v                            |
+ *   valid ------------------------+
+ *    |                            | 
+ *    | (.start)                   | (ancel)
+ *    v                            | EOF
+ *   running ----------------------+
+ *    |              ^             |
+ *    | (.pause)     | (.resume)   |
+ *    v              |             |
+ *   running&paused -+-------------+
+ *    
+ * ```
+ */
 class Job : public DeviceObserver {
 
 public:
@@ -23,16 +44,19 @@ public:
         if(gcodeFile) fileSize = gcodeFile.size();
         filePos = 0;
         running = false; 
+        cancelled = false;
+        curLineNum = 0;
     }
 
     void notification(const DeviceError& err)  {
-        Serial.println("ERR!!!");
-        running = false;
+        Serial.println("Device error, canceling job");
+        cancel();
     }
 
     void start() { startTime = millis();  running = true;  }
-    void cancel() { running = false; if(gcodeFile) gcodeFile.close();  }
+    void cancel() { cancelled=true; stop();  }
     bool isRunning() {  return running; }
+    bool isCancelled() { return cancelled; }
 
     void pause() { paused = false; }
     void resume() { paused = true; }
@@ -52,10 +76,20 @@ private:
     uint32_t fileSize;
     uint32_t filePos;
     uint32_t startTime;
+    static const int MAX_LINE = 100;
+    char curLine[MAX_LINE+1];
+    size_t curLinePos;
+
+    size_t curLineNum;
 
     //float percentage = 0;
     bool running;
+    bool cancelled;
     bool paused;
+
+    void stop() {   running = false; if(gcodeFile) gcodeFile.close();  }
+    void readNextLine();
+    bool scheduleNextCommand(GCodeDevice *dev);
 
 
     static Job job;

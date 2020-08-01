@@ -7,8 +7,63 @@ void Job::setJob(Job* _job) { job = *_job; }
 Job * Job::getJob() { return &job; }
 
 #define J_DEBUGF(...) // { Serial.printf(__VA_ARGS__); }
-#define J_DEBUGS(s) // { Serial.println(s); }
+#define J_DEBUGS(s)   // { Serial.println(s); }
 
+void Job::readNextLine() {
+    if(gcodeFile.available()==0) { 
+        stop();
+        return; 
+    }
+    while( gcodeFile.available()>0 ) {
+        int rd = gcodeFile.read();
+        filePos++;
+        if(rd=='\n' || rd=='\r') {
+            if(curLinePos!=0) break; // if it's an empty string or LF after last CR, just continue reading
+        } else {
+            if(curLinePos<MAX_LINE) curLine[curLinePos++] = rd;
+            else { 
+                stop(); 
+                J_DEBUGF("Line length exceeded\n");
+                break; 
+            }
+        }
+    }
+    curLine[curLinePos]=0;
+}
+
+bool Job::scheduleNextCommand(GCodeDevice *dev) {
+    
+    if(curLinePos==0) {
+        readNextLine();
+        if(!running) return false;    // don't run next time
+
+        char* pos = strchr(curLine, ';');
+        if(pos!=NULL) {*pos = 0; curLinePos = pos-curLine; }
+
+        if(curLinePos==0) { return true; } // can seek next
+
+        #ifdef ADD_LINENUMBERS
+            char out[MAX_LINE+1];
+            snprintf(out, MAX_LINE, "N%d %s", ++curLineNum, curLine);
+            uint8_t checksum = 0, count = strlen(out);
+            while (count) checksum ^= out[--count];
+            snprintf(curLine, MAX_LINE, "%s*%d", out, checksum);
+            curLinePos = strlen(curLine);
+        #endif
+    }
+
+    if(dev->canSchedule(curLinePos)) {        
+        
+        J_DEBUGF("  J queueing line '%s', len %d\n", curLine, curLinePos );
+
+        bool queued = dev->scheduleCommand(curLine, curLinePos);
+        assert(queued);
+
+        curLinePos = 0;
+        return true; //can try next command
+
+    } else return false; // stop trying for now
+}
 
 void Job::loop() {
     if(!running || paused) return;
@@ -16,31 +71,6 @@ void Job::loop() {
     GCodeDevice * dev = GCodeDevice::getDevice();
     if(dev==nullptr) return;
 
-    if(dev->canSchedule(100)) {
-        int rd;
-        char cline[256];
-        uint32_t len=0;
-        while( gcodeFile.available() ) {
-            rd = gcodeFile.read();
-            if(rd=='\n' || rd=='\r') break;
-            cline[len++] = rd;
-        }        
-        if(gcodeFile.available()==0) running = false;
-        filePos = fileSize - gcodeFile.available();
+    while( scheduleNextCommand(dev) ) {}
 
-        cline[len]=0;
-
-        if(len==0) return;
-
-        String line(cline);
-        J_DEBUGF("popped line '%s', len %d\n", line.c_str(), len );
-
-        int pos = line.indexOf(';');
-        if(pos!=-1) line = line.substring(0, pos);
-
-        if(line.length()==0) return;
-
-        dev->scheduleCommand(line);
-
-    }
 }
