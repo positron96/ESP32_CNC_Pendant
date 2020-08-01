@@ -14,7 +14,7 @@ enum class Button {
 };
 
 
-class Screen {
+class Screen : public JobObserver {
 public:
     static U8G2 &u8g2;
     static bool buttonPressed[3];
@@ -22,16 +22,23 @@ public:
     static int potVal[2];
     static const int STATUS_BAR_HEIGHT = 8;
 
+    void setDirty(bool fdirty=true) { dirty=fdirty; }
+
+    void notification(JobStatusEvent e) override {
+        setDirty();
+    }
 
     virtual void begin() {}
 
     virtual void loop() {}
 
     void draw() {
+        if(!dirty) return;
         u8g2.clearBuffer();
         drawStatusBar();
         drawContents();
         u8g2.sendBuffer();
+        dirty = false;
     }
 
     void processInput() {
@@ -48,8 +55,9 @@ public:
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) u8g2.drawGlyph(0,0, '?');
         else {
-            const char s = dev->getDescrption().charAt(0);
-            //u8g2.setF
+            char s = dev->getDescrption().charAt(0);
+            if(dev->isConnected() ) s=toupper(s); else s=tolower(s);
+            if(dev->isInPanic() ) s='!';            
             u8g2.drawGlyph(0,0, s );
         }
 
@@ -62,7 +70,8 @@ public:
                 str[0] = ' ';
             }
         }
-        u8g2.drawStr(50, 0, str);
+        int w = u8g2.getStrWidth(str);
+        u8g2.drawStr(u8g2.getWidth()-w, 0, str);
         
 
         // download
@@ -78,6 +87,8 @@ public:
     }
 
 protected:
+
+    bool dirty;
 
     virtual void drawContents() = 0;
 
@@ -120,5 +131,8 @@ private:
         }
     }
 
+    void drawMessageBox() {
+        //u8g2.userInterfaceMessage
+    }
     
 };

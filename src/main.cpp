@@ -138,6 +138,8 @@ void deviceLoop(void* pvParams) {
     //GCodeDevice::setDevice(dev);
     dev->add_observer( *job );
     dev->begin();
+    job->add_observer( dro );
+    job->add_observer( fileChooser );
     
     while(1) {
         dev->loop();

@@ -97,7 +97,7 @@ protected:
             if( cDist==JogDist::_10 && v<2000-100) cDist=JogDist::_1;
             if( cDist==JogDist::_1  && v<1300-100) cDist=JogDist::_01;
         }
-        
+        setDirty();
     }
 
     virtual void onButtonPressed(Button bt) override {
@@ -109,6 +109,7 @@ protected:
         bool r = dev->jog( (int)cAxis, distVal(cDist) );
         //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
         if(!r) DEBUGF("Could not schedule jog\n");
+        setDirty();
     };
 
 

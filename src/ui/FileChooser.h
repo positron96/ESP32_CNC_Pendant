@@ -65,13 +65,12 @@ private:
 
         maxLines = i;
         FC_DEBUGF("loadDirContents: file count %d\n", maxLines );
-        repaintNeeded = true;
+        setDirty();
     }
 protected:
 
 
     void drawContents() {
-        if(!repaintNeeded) return;
 
         //u8g2.setDrawColor(1);
         u8g2.setFont(u8g2_font_5x8_tr);
@@ -93,7 +92,6 @@ protected:
             u8g2.drawStr(1, i, files[i].c_str() ); 
         }
 
-        repaintNeeded = false;
     }
 
 
@@ -142,7 +140,7 @@ protected:
                 break;
         }
         FC_DEBUGF("leaving bt, selLine is %d\n", selLine);
-        repaintNeeded = true;
+        setDirty();
     }
 
 };
