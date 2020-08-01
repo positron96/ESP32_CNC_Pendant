@@ -94,14 +94,16 @@ String readStringUntil(Stream &serial, char terminator, size_t timeout) {
 
 
 
-GCodeDevice *GCodeDevice::device;
+GCodeDevice *GCodeDevice::inst = nullptr;
 
 GCodeDevice *GCodeDevice::getDevice() {
-    return device;
+    return inst;
 }
+/*
 void GCodeDevice::setDevice(GCodeDevice *dev) {
     device = dev;
 }
+*/
 
 
 

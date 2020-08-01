@@ -11,6 +11,8 @@
 #define SKETCH_VERSION  "0.0.1"
 
 
+WebServer* WebServer::inst = nullptr;
+
 
 void WebServer::begin() {
 
@@ -369,6 +371,7 @@ void WebServer::handleUpload(AsyncWebServerRequest *request, String filename, si
     static File file;
 
     if (index==0) { // first chunk
+        downloading = true;
         Serial.printf("Uploading to file %s\n", filename.c_str() );
         uploadedFilePath = filename;
 
@@ -385,6 +388,7 @@ void WebServer::handleUpload(AsyncWebServerRequest *request, String filename, si
         Serial.printf("uploaded\n");
         uploadedFileSize = index + len;
         file.close();
+        downloading = false;
     }
 }
 

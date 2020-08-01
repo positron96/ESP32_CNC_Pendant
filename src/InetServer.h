@@ -8,18 +8,26 @@
 class WebServer {
 public:
     WebServer(uint16_t port=80): server(port) , port(port) {
-
+        inst = this;
     }
 
     void begin();
 
+    static WebServer * getWebServer() { return inst; }
+
+    bool isDownloading() { return downloading; }
+
 private:
+
+    static WebServer * inst;
+
     AsyncWebServer server;
     uint16_t port;
 
     String uploadedFilePath;
     size_t uploadedFileSize;
     //String localUrlBase;
+    bool downloading;
     
     void registerOptoPrintApi() ;
     

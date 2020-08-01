@@ -6,7 +6,8 @@
 
 #include "devices/GCodeDevice.h"
 #include "Job.h"
-#include "FileChooser.h"
+#include "ui/FileChooser.h"
+#include "ui/DRO.h"
 #include "InetServer.h"
 
 HardwareSerial PrinterSerial(2);
@@ -34,11 +35,10 @@ HardwareSerial PrinterSerial(2);
 
 
 U8G2_ST7920_128X64_F_HW_SPI u8g2(U8G2_R1, PIN_CE_LCD, PIN_RST_LCD); 
+U8G2 &Screen::u8g2{u8g2};
 
 
 WebServer server;
-
-FileChooser fileChooser;
 
 GCodeDevice *dev = nullptr;
 
@@ -48,38 +48,10 @@ enum class Mode {
     DRO, FILECHOOSER
 };
 
+FileChooser fileChooser;
+DRO dro;
+Screen *cScreen;
 Mode cMode = Mode::DRO;
-
-enum class JogAxis {
-    X,Y,Z
-};
-char axisChar(const JogAxis &a) {
-    switch(a) {
-        case JogAxis::X : return 'X';
-        case JogAxis::Y : return 'Y';
-        case JogAxis::Z : return 'Z';
-    }
-    DEBUGF("Unknown axis\n");
-    return 0;
-}
-enum class JogDist {
-    _01, _1, _10
-};
-float distVal(const JogDist &a) {
-    switch(a) {
-        case JogDist::_01: return 0.1;
-        case JogDist::_1: return 1;
-        case JogDist::_10: return 10;
-    }
-    DEBUGF("Unknown dist\n");
-    return 1;
-}
-
-int encVal = 0;
-bool buttonPressed[3];
-
-JogAxis cAxis;
-JogDist cDist;
 
 
 void encISR();
@@ -114,7 +86,7 @@ void setup() {
 
     u8g2.begin();
     u8g2.setBusClock(600000);
-    u8g2.setFont(u8g2_font_5x8_tf);
+    u8g2.setFont(u8g2_font_5x8_tr);
     u8g2.setFontPosTop();
     u8g2.setFontMode(1);
 
@@ -136,7 +108,9 @@ void setup() {
     
     job = Job::getJob();
 
-    /*
+    cScreen = &dro;
+
+    dro.begin();    
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -147,7 +121,6 @@ void setup() {
             dev->enableStatusUpdates();
         }
     } );
-    */
 
     server.begin();
     
@@ -162,7 +135,7 @@ void deviceLoop(void* pvParams) {
         dev = DeviceDetector::detectPrinter(PrinterSerial);
     }
     
-    GCodeDevice::setDevice(dev);
+    //GCodeDevice::setDevice(dev);
     dev->add_observer( *job );
     dev->begin();
     
@@ -172,95 +145,21 @@ void deviceLoop(void* pvParams) {
     vTaskDelete( NULL );
 }
 
-void processPot() {
-    //  center lines : 2660    3480    4095
-    // borders:            3000    3700
-
-    int v = analogRead(PIN_POT1);
-    if( cAxis==JogAxis::X && v>3000+100) cAxis=JogAxis::Y;
-    if( cAxis==JogAxis::Y && v>3700+100) cAxis=JogAxis::Z;
-    if( cAxis==JogAxis::Z && v<3700-100) cAxis=JogAxis::Y;
-    if( cAxis==JogAxis::Y && v<3000-100) cAxis=JogAxis::X;
-
-    // centers:      950    1620     2420
-    // borders:         1300    2000
-
-    v = analogRead(PIN_POT2);
-    if( cDist==JogDist::_01 && v>1300+100) cDist=JogDist::_1;
-    if( cDist==JogDist::_1  && v>2000+100) cDist=JogDist::_10;
-    if( cDist==JogDist::_10 && v<2000-100) cDist=JogDist::_1;
-    if( cDist==JogDist::_1  && v<1300-100) cDist=JogDist::_01;
-    
-}
-
-void processEnc() {
-    static int lastEnc;
-    if(encVal != lastEnc) {
-        int8_t dx = (encVal - lastEnc);
-
-        if(cMode==Mode::FILECHOOSER) {
-            fileChooser.buttonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
-        } else {
-            bool r = dev->jog( (int)cAxis, distVal(cDist) );
-            //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
-            if(!r) DEBUGF("Could not schedule jog\n");
-        }
-    }
-    lastEnc = encVal;
-}
-
-void processButtons() {
-    static bool lastButtPressed[3];
-    static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
-    for(int i=0; i<3; i++) {
-        if(lastButtPressed[i] != buttonPressed[i]) {
-            //DEBUGF("button changed: %d %d\n", i, buttonPressed[i] );
-            if(buttonPressed[i]) {
-                if(cMode==Mode::FILECHOOSER) fileChooser.buttonPressed(buttons[i]);
-                else { if(i==2) job->setPaused(!job->isPaused()); }
-            }
-            lastButtPressed[i] = buttonPressed[i];
-        }
-    }
-}
-
-
-void draw() {
-
-    if(cMode==Mode::FILECHOOSER) {
-        fileChooser.draw(u8g2);
-        return;
-    }
-
-    if(dev==nullptr) return;
-
-    char str[100];
-
-    u8g2.clearBuffer();
-    
-
-    snprintf(str, 100, "X: %.3f", dev->getX() );   u8g2.drawStr(10, 0, str ); 
-    snprintf(str, 100, "Y: %.3f", dev->getX() );   u8g2.drawStr(10, 10, str ); 
-    snprintf(str, 100, "Z: %.3f", dev->getX() );   u8g2.drawStr(10, 20, str ); 
-
-    snprintf(str, 100, "%c x%3f", axisChar(cAxis), distVal(cDist)  );
-    u8g2.drawStr(10, 30, str ); 
-
-    u8g2.drawStr(0, 40, job->isPaused() ? "P" : "");
-    
-    snprintf(str, 100, "%d%%", int(job->getPercentage()*100) );
-    u8g2.drawStr(10, 40, str);
-    u8g2.sendBuffer();
+void readPots() {
+    Screen::potVal[0] = analogRead(PIN_POT1);
+    Screen::potVal[1] = analogRead(PIN_POT2);
+   
 }
 
 void loop() {
-    processPot();
-    processEnc();
-    processButtons();
+    readPots();    
 
     job->loop();
 
-    draw();
+    if(cScreen != nullptr) {
+        cScreen->processInput();
+        cScreen->draw();
+    }
 
     if(dev==nullptr) return;
 
@@ -294,17 +193,17 @@ IRAM_ATTR void encISR() {
     int v1 = digitalRead(PIN_ENC1);
     int v2 = digitalRead(PIN_ENC2);
     if(v1==HIGH && last1==LOW) {
-        if(v2==HIGH) encVal++; else encVal--;
+        if(v2==HIGH) Screen::encVal++; else Screen::encVal--;
     }
     if(v1==LOW && last1==HIGH) {
-        if(v2==LOW) encVal++; else encVal--;
+        if(v2==LOW) Screen::encVal++; else Screen::encVal--;
     }
     last1 = v1;
 }
 
 
 IRAM_ATTR void btChanged(uint8_t button, uint8_t val) {
-  buttonPressed[button] = val==LOW;
+  Screen::buttonPressed[button] = val==LOW;
 }
 
 IRAM_ATTR void bt1ISR() {

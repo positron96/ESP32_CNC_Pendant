@@ -24,13 +24,16 @@ class GCodeDevice : public etl::observable<DeviceObserver, MAX_MOUSE_OBSERVERS> 
 public:
 
     static GCodeDevice *getDevice();
-    static void setDevice(GCodeDevice *dev);
+    //static void setDevice(GCodeDevice *dev);
 
     GCodeDevice(Stream * s, size_t priorityBufSize=0, size_t bufSize=0): printerSerial(s), connected(false)  {
         if(priorityBufSize!=0) buf0 = xMessageBufferCreate(priorityBufSize);
         if(bufSize!=0) buf1 = xMessageBufferCreate(bufSize);
         buf0Len = bufSize;
         buf1Len = priorityBufSize;
+
+        assert(inst==nullptr);
+        inst = this;
     }
     GCodeDevice() : printerSerial(nullptr), connected(false) {}
     virtual ~GCodeDevice() { clear_observers(); }
@@ -145,7 +148,7 @@ protected:
     bool xoffEnabled = true;
 
 private:
-    static GCodeDevice *device;
+    static GCodeDevice *inst;
 
     friend void loop();
 
