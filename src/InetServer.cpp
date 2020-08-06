@@ -476,28 +476,48 @@ void WebServer::registerWebBrowser() {
     server.on("/api2/print", HTTP_GET, [](AsyncWebServerRequest * req) {
         if(!req->hasParam("file")) {
             Serial.printf("GET %s\n", req->url().c_str() );
-            req->send(400, "text/html", "no file paraameter");
+            req->send(400, "text/plain", "no file paraameter");
             return;
         }
         String file = req->getParam("file")->value();
         Serial.printf("GET %s, file=%s\n", req->url().c_str(), file.c_str() );
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) {
-            req->send(409, "text/html", "no printer");
+            req->send(409, "text/plain", "no device");
             return;
         }
         Job *job = Job::getJob();
         if(job->isValid() ) { 
-            req->send(409, "text/html", "Job already set");
+            req->send(409, "text/plain", "Job already set");
             return;
         }
         job->setFile(file);
         if(!job->isValid() ){ 
-            req->send(400, "text/html", "File not found or invalid");
+            req->send(400, "text/plain", "File not found or invalid");
             return;
         }
         job->start();
-        req->send(200, "text/html", "ok");
+        req->send(200, "text/plain", "ok");
+    } );
+
+    server.on("/api2/cmd", HTTP_GET, [](AsyncWebServerRequest * req) {
+        if(!req->hasParam("gcode")) {
+            Serial.printf("GET %s\n", req->url().c_str() );
+            req->send(400, "text/plain", "no gcode paraameter");
+            return;
+        }
+        String gcode = req->getParam("gcode")->value();
+        Serial.printf("GET %s, gcode='%s'\n", req->url().c_str(), gcode.c_str() );
+        GCodeDevice *dev = GCodeDevice::getDevice();
+        if(dev==nullptr) {
+            req->send(409, "text/plain", "no device");
+            return;
+        }
+        if(dev->scheduleCommand(gcode) ) {
+            req->send(200, "text/plain", "ok");
+        } else {
+            req->send(500, "text/plain", "failed to schedule");
+        }
     } );
 
 }

@@ -58,7 +58,7 @@ public:
     }
 
     void notification(const DeviceStatusEvent& e) override {
-        if(e.panic) {
+        if(e.statusField==1) {
             Serial.println("Device error, canceling job");
             cancel();
         }
