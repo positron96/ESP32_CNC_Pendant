@@ -191,7 +191,7 @@ void GrblDevice::receiveResponses() {
                 sentQueue.pop();
                 responseDetail = "error";
                 panic = true;
-                notify_observers(DeviceStatusEvent{ .panic=true }); 
+                notify_observers(DeviceStatusEvent{1}); 
             } else
             if ( resp.startsWith("<") ) {
                 parseGrblStatus(resp);
@@ -307,7 +307,7 @@ void MarlinDevice::receiveResponses() {
                         // To do: Pause sending gcode, or do something similar
                         sprintf(responseDetail, "cold extrusion");
                         
-                        notify_observers(DeviceStatusEvent{ .panic=true }); 
+                        notify_observers(DeviceStatusEvent{1}); 
                     }
                     else if (startsWith(resp, "Error:") ) {
                         sprintf(responseDetail, "ERROR");
@@ -316,7 +316,7 @@ void MarlinDevice::receiveResponses() {
                         panic = true;
 
                         
-                        notify_observers(DeviceStatusEvent{ .panic=true }); 
+                        notify_observers(DeviceStatusEvent{1}); 
                     }
                     else {
                         //incompleteResponse = true;

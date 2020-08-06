@@ -142,17 +142,32 @@ protected:
             S_DEBUGF("device is null\n");
             return;
         }
-        if(bt == Button::ENC_UP || bt==Button::ENC_DOWN) {
-            float f=0;
-            float d = distVal(cDist);
-            if( lastJog!=0) { f = d / (millis()-lastJog) * 1000*60; };
-            if(f<500) f=500;
-            S_DEBUGF("jog af %d\n", (int)f);
-            bool r = dev->jog( (int)cAxis, (bt==Button::ENC_DOWN ? 1 : -1) * d, (int)f );
-            lastJog = millis();
-            //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
-            if(!r) S_DEBUGF("Could not schedule jog\n");
-            setDirty();
+        switch(bt) {
+            case Button::ENC_UP:
+            case Button::ENC_DOWN: {
+                float f=0;
+                float d = distVal(cDist);
+                if( lastJog!=0) { f = d / (millis()-lastJog) * 1000*60; };
+                if(f<500) f=500;
+                S_DEBUGF("jog af %d\n", (int)f);
+                bool r = dev->jog( (int)cAxis, (bt==Button::ENC_DOWN ? 1 : -1) * d, (int)f );
+                lastJog = millis();
+                //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
+                if(!r) S_DEBUGF("Could not schedule jog\n");
+                setDirty();
+                break;
+            }
+            
+            case Button::BT1: {
+                S_DEBUGF("homing\n");
+                dev->scheduleCommand("G28");
+                break;
+            }
+            case Button::BT3: {
+                dev->reset();
+                break;
+            }
+            default: break;
         }
     };
 

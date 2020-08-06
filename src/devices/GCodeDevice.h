@@ -16,7 +16,7 @@
 
 const int MAX_DEVICE_OBSERVERS = 3;
 
-struct DeviceStatusEvent { bool panic; int statusField; };
+struct DeviceStatusEvent { int statusField; };
 
 typedef etl::observer<const DeviceStatusEvent&> DeviceObserver;
 
@@ -44,12 +44,9 @@ public:
     };
 
     virtual bool scheduleCommand(String cmd) {
-        if(panic) return false;
-        if(!buf1) return false;
-        if(cmd.length()==0) return true;
-        return xMessageBufferSend(buf1, cmd.c_str(), cmd.length(), 0) != 0;
+        return scheduleCommand(cmd.c_str(), cmd.length() );
     };
-    virtual bool scheduleCommand(char* cmd, size_t len) {
+    virtual bool scheduleCommand(const char* cmd, size_t len) {
         if(panic) return false;
         if(!buf1) return false;
         if(len==0) return false;
@@ -152,6 +149,7 @@ protected:
             connected = false; 
             cleanupQueue();
             disarmRxTimeout(); 
+            notify_observers(DeviceStatusEvent{0});
         }
     }
 
@@ -252,7 +250,8 @@ public:
     virtual void reset() {        
         cleanupQueue();
         panic = false;
-        //schedulePriorityCommand("M112");
+        schedulePriorityCommand("M112");
+        //schedulePriorityCommand("M999");
     }
 
     virtual void receiveResponses() ;
