@@ -68,6 +68,8 @@ TaskHandle_t deviceTask;
 
 void setup() {
 
+    Serial.begin(115200);
+
     pinMode(PIN_BT1, INPUT_PULLUP);
     pinMode(PIN_BT2, INPUT_PULLUP);
     pinMode(PIN_BT3, INPUT_PULLUP);
@@ -80,10 +82,6 @@ void setup() {
     attachInterrupt(PIN_BT2, bt2ISR, CHANGE);
     attachInterrupt(PIN_BT3, bt3ISR, CHANGE);
 
-    //PrinterSerial.begin(250000);
-
-    Serial.begin(115200);
- 
     u8g2_.begin();
     u8g2_.setBusClock(600000);
     u8g2_.setFont(u8g2_font_5x8_tr);
@@ -102,6 +100,12 @@ void setup() {
         while (1);
     }
     Serial.println("initialization done.");
+
+    DynamicJsonDocument cfg(512);
+    File file = SD.open("/config.json");
+    DeserializationError error = deserializeJson(cfg, file);
+    if (error)  Serial.println(F("Failed to read file, using default configuration"));
+ 
 
     xTaskCreatePinnedToCore(deviceLoop, "DeviceTask", 
         4096, nullptr, 1, &deviceTask, 1); // cpu1 
@@ -126,7 +130,8 @@ void setup() {
         }
     } );
 
-    server.begin();
+    server.begin( cfg.as<JsonObjectConst>() );
+    file.close();
     
 }
 

@@ -11,7 +11,7 @@ public:
         inst = this;
     }
 
-    void begin();
+    void begin(JsonObjectConst cfg = JsonObjectConst() );
 
     void stop();
 

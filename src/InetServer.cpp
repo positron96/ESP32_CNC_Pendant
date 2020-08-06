@@ -14,17 +14,16 @@
 WebServer* WebServer::inst = nullptr;
 
 
-void WebServer::begin() {
+void WebServer::begin(JsonObjectConst cfg) {
 
-    /*
-    File cfg = SD.open("/config.txt");
-    String essid = cfg.readStringUntil('\n'); essid.trim();
-    String pass = cfg.readStringUntil('\n'); pass.trim();
-    cfg.close();
+    
+    //File cfg = SD.open("/config.txt");
+    String essid = cfg.containsKey("essid") ? cfg["essid"].as<String>() : "MelNet";
+    String pass = cfg.containsKey("password") ? cfg["password"].as<String>() : "";
+
+    String hostname = cfg.containsKey("hostname") ? cfg["hostname"].as<String>() : "espendant";
+
     WiFi.begin(essid.c_str(), pass.c_str() );
-    */
-
-    WiFi.begin("***REMOVED***", "***REMOVED***");
 
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -36,8 +35,8 @@ void WebServer::begin() {
     Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
 
-    MDNS.begin("cncpendant");
-    MDNS.setInstanceName("cncpendantinstance");
+    MDNS.begin(hostname.c_str() );
+    MDNS.setInstanceName( hostname.c_str() );
 
     // OctoPrint API
     // Unfortunately, Slic3r doesn't seem to recognize it
