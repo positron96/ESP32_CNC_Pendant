@@ -9,7 +9,7 @@ int Screen::encVal = 0;
         static int lastEnc;
         if(encVal != lastEnc) {
             int8_t dx = (encVal - lastEnc);
-            onButtonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
+            onButtonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP, dx);
         }
         lastEnc = encVal;
     }
@@ -19,10 +19,10 @@ int Screen::encVal = 0;
         static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
         for(int i=0; i<3; i++) {
             if(lastButtPressed[i] != buttonPressed[i]) {
-                //DEBUGF("button changed: %d %d\n", i, buttonPressed[i] );
+                S_DEBUGF("button%d changed: %d\n", i, buttonPressed[i] );
                 if(buttonPressed[i]) {
-                    if(i==0) if(selMenuItem>0) selMenuItem--;
-                    if(i==2) if(selMenuItem<menuItems.size()-1 )  selMenuItem++;
+                    if(i==0) if(selMenuItem>0) { selMenuItem--; setDirty(); }
+                    if(i==2) if(selMenuItem<menuItems.size()-1 ) { selMenuItem++; setDirty(); }
                     if(i==1) onMenuItemSelected(selMenuItem);
                     //onButtonPressed(buttons[i]);
                 }
@@ -61,7 +61,7 @@ int Screen::encVal = 0;
         Job *job = Job::getJob();
         char str[20];
         if(job->isRunning() ) {
-            float p = job->getPercentage();
+            float p = job->getCompletion()*100;
             if(p<10) snprintf(str, 20, " %.1f%%", p );
             else snprintf(str, 20, " %d%%", (int)p );
             if(job->isPaused() ) str[0] = '|';
@@ -88,17 +88,18 @@ int Screen::encVal = 0;
 
     void Screen::drawMenu() {
         int len = menuItems.size();
-        int onscreenLen = len<4 ? len : 4;
-        int y = u8g2.getHeight()-15;
+        int onscreenLen = len<5 ? len : 5;
+        const int w=10;
+        int y = u8g2.getHeight()-w;        
         u8g2.setFontMode(2);
         for(int i=0; i<onscreenLen; i++) {
             if(selMenuItem == i) {
-                u8g2.drawBox(i*15, y, 15, 15);    
+                u8g2.drawBox(i*w, y, w, w);    
             } else {            
-                u8g2.drawFrame(i*15, y, 15, 15);
+                u8g2.drawFrame(i*w, y, w, w);
             }
             uint16_t c = menuItems[i].charAt(0);
-            u8g2.drawGlyph(i*15+1, y+1, c);
+            u8g2.drawGlyph(i*w+2, y+1, c);
         }
     }
     

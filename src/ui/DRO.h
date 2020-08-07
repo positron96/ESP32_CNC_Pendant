@@ -48,34 +48,47 @@ public:
     
     void begin() override {
         menuItems.push_back("oFile...");
+        menuItems.push_back("xReset");
+        menuItems.push_back("uUpdate");
     };
 
-    /*void loop() override {
-        if(millis()>nextRefresh) {
+    void loop() override {
+        Screen::loop();
+        /*if(millis()>nextRefresh) {
             nextRefresh = millis() + 500;
-            setDirty();
-        }
-    };*/
+            GCodeDevice *dev = GCodeDevice::getDevice();
+            if (dev!=nullptr) {
+                dev->requestStatusUpdate();
+                setDirty();
+            }
+        }*/
+    }
 
     void config(JsonObjectConst cfg) {
         for (JsonPairConst kv : cfg) {
             etl::map<String, String, 10> devMenu{};
-            S_DEBUGF("Device menu %s\n", kv.key().c_str() );                
-            allMenuItems[ String( kv.key().c_str() )] = devMenu;
+            S_DEBUGF("Device menu %s\n", kv.key().c_str() );
             for (JsonPairConst cmd : kv.value().as<JsonObject>() ) {
                 devMenu[ String(cmd.key().c_str()) ] = cmd.value().as<String>();
                 S_DEBUGF(" %s=%s\n", cmd.key().c_str(), cmd.value().as<char*>()); 
+                allMenuItems[ String( kv.key().c_str() )] = devMenu;
                 if( devMenu.available()==0) break;
             }
             if( allMenuItems.available()==0) break;
         }
+
     }
 
     void setDevice(GCodeDevice *dev) {
+        S_DEBUGF("setDevice %s\n", dev->getType() );
         String t = dev->getType();
-        if( allMenuItems.find(t) == allMenuItems.end() ) return;
+        if( allMenuItems.find(t) == allMenuItems.end() ) {
+            S_DEBUGF("Could not find type %s\n", t.c_str() );
+            return;
+        }
         devMenu = &allMenuItems[t];
         for(auto r: *devMenu) {
+            S_DEBUGF("Adding menu %s\n", r.first.c_str() );
             menuItems.push_back(r.first);
             if(menuItems.available()==0) break;
         }
@@ -172,14 +185,22 @@ protected:
 
     void onMenuItemSelected(uint8_t item) override {
         if(item==0) { 
+            S_DEBUGF("Should open file selector here\n");
             // go to file manager
+            return;
+        }
+        GCodeDevice *dev = GCodeDevice::getDevice();
+        if(dev==nullptr) return;
+        if(item==1) { 
+            dev->reset();
+            return;
+        }
+        if(item==2) { 
+            dev->requestStatusUpdate();
             return;
         }
         
         const char* cmd = devMenu->at( menuItems[item] ).c_str();
-
-        GCodeDevice *dev = GCodeDevice::getDevice();
-        assert(dev!=nullptr);
 
         const char *p1 = cmd, *p2 = strchr(cmd, '\n');
         while(p2!=nullptr) {
@@ -193,7 +214,7 @@ protected:
         setDirty(true);
     };
 
-    void onButtonPressed(Button bt) override {
+    void onButtonPressed(Button bt, int8_t arg) override {
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) {
             S_DEBUGF("device is null\n");
@@ -203,13 +224,12 @@ protected:
             case Button::ENC_UP:
             case Button::ENC_DOWN: {
                 float f=0;
-                float d = distVal(cDist);
+                float d = distVal(cDist)*arg;
                 if( lastJog!=0) { f = d / (millis()-lastJog) * 1000*60; };
                 if(f<500) f=500;
-                S_DEBUGF("jog af %d\n", (int)f);
-                bool r = dev->jog( (int)cAxis, (bt==Button::ENC_DOWN ? 1 : -1) * d, (int)f );
+                S_DEBUGF("jog af %d, dt=%d ms, delta=%d\n", (int)f, millis()-lastJog, arg);
+                bool r = dev->jog( (int)cAxis, d, (int)f );
                 lastJog = millis();
-                //schedulePriorityCommand("$J=G91 F100 "+axisStr(cAxis)+(dx>0?"":"-")+distStr(cDist) );
                 if(!r) S_DEBUGF("Could not schedule jog\n");
                 setDirty();
                 break;

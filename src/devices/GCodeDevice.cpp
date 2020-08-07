@@ -156,7 +156,7 @@ void GCodeDevice::sendCommands() {
         printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
         printerSerial->print('\n');
         armRxTimeout();
-        //GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
+        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
         curUnsentCmdLen = 0;
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
@@ -179,27 +179,31 @@ void GrblDevice::receiveResponses() {
             resp += ch;
         else {
             //bool incompleteResponse = false;
-            String responseDetail = "";
+            //String responseDetail = "";
 
             //DEBUGF("Got response %s\n", serialResponse.c_str() );
 
             if (resp.startsWith("ok", lineStartPos)) {
                 sentQueue.pop();
-                responseDetail = "ok";
+                //responseDetail = "ok";
+                connected = true;
             } else 
-            if (resp.startsWith("error") ) {
+            if (resp.startsWith("error") || resp.startsWith("ALARM:") ) {
                 sentQueue.pop();
-                responseDetail = "error";
+                //responseDetail = "error";
                 panic = true;
+                GD_DEBUGF("ERR '%s'\n", resp.c_str() ); 
                 notify_observers(DeviceStatusEvent{1}); 
             } else
             if ( resp.startsWith("<") ) {
                 parseGrblStatus(resp);
+            } else 
+            if(resp.startsWith("[MSG:")) {
+                GD_DEBUGF("Msg '%s'\n", resp.c_str() ); 
             }
             
             
-            //GD_DEBUGF(" > (f%3d,%3d) '%s' current cmd, desc:'%s'\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), 
-            //    resp.c_str(), responseDetail.c_str() );
+            GD_DEBUGF(" > (f%3d,%3d) '%s' \n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(),resp.c_str() );
 
             updateRxTimeout( sentQueue.size()>0 );
             resp = "";
@@ -212,7 +216,7 @@ void GrblDevice::receiveResponses() {
 
 void GrblDevice::parseGrblStatus(String v) {
     //<Idle|MPos:0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
-    GD_DEBUGF("parsing %s\n", v.c_str() );
+    //GD_DEBUGF("parsing %s\n", v.c_str() );
     int pos;
     pos = v.indexOf('|');
     if(pos==-1) return;

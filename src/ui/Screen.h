@@ -19,7 +19,7 @@ enum class Button {
 };
 
 
-class Screen : public JobObserver, public DeviceObserver {
+class Screen : public JobObserver, public DeviceObserver, public WebServerObserver {
 public:
     static U8G2 &u8g2;
     static bool buttonPressed[3];
@@ -33,6 +33,9 @@ public:
         setDirty();
     }
     void notification(const DeviceStatusEvent &e) override {
+        setDirty();
+    }
+    void notification(const WebServerStatusEvent &e) override {
         setDirty();
     }
 
@@ -56,7 +59,7 @@ protected:
 
     virtual void drawContents() = 0;
 
-    virtual void onButtonPressed(Button bt) {};
+    virtual void onButtonPressed(Button bt, int8_t arg) {};
 
     virtual void onPotValueChanged(int pot, int val) {};
 

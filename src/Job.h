@@ -58,7 +58,7 @@ public:
     }
 
     void notification(const DeviceStatusEvent& e) override {
-        if(e.statusField==1) {
+        if(e.statusField==1 && isValid() ) {
             Serial.println("Device error, canceling job");
             cancel();
         }
@@ -74,7 +74,7 @@ public:
     void setPaused(bool v) { paused = v; notify_observers(JobStatusEvent{0}); }
     bool isPaused() { return paused; }
 
-    float getPercentage() { if(isValid()) return 1.0 * filePos/fileSize; else return 0; }
+    float getCompletion() { if(isValid()) return 1.0 * filePos/fileSize; else return 0; }
     size_t getFilePos() { if(isValid()) return filePos; else return 0;}
     size_t getFileSize() { if(isValid()) return fileSize; else return 0;}
     bool isValid() { return (bool)gcodeFile; }

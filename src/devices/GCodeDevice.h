@@ -14,11 +14,13 @@
 
 #define KEEPALIVE_INTERVAL 5000    // Marlin defaults to 2 seconds, get a little of margin
 
+#define STATUS_REQUEST_INTERVAL  500
+
+
 const int MAX_DEVICE_OBSERVERS = 3;
-
 struct DeviceStatusEvent { int statusField; };
-
 typedef etl::observer<const DeviceStatusEvent&> DeviceObserver;
+
 
 class GCodeDevice : public etl::observable<DeviceObserver, MAX_DEVICE_OBSERVERS> {
 public:
@@ -74,7 +76,7 @@ public:
 
         if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
             requestStatusUpdate();
-            nextStatusRequestTime = millis() + 1000;
+            nextStatusRequestTime = millis() + STATUS_REQUEST_INTERVAL;
         }
     }
     virtual void sendCommands();
@@ -107,6 +109,8 @@ public:
     size_t getSentQueueLength()  {
         return sentCounter->bytes();
     }
+
+    virtual void requestStatusUpdate() = 0;
 
 protected:
     Stream * printerSerial;
@@ -152,7 +156,7 @@ protected:
             connected = false; 
             cleanupQueue();
             disarmRxTimeout(); 
-            notify_observers(DeviceStatusEvent{0});
+            notify_observers(DeviceStatusEvent{1});
         }
     }
 
@@ -160,9 +164,8 @@ protected:
         if(buf1) xMessageBufferReset(buf1); 
         if(buf0) xMessageBufferReset(buf0); 
         sentCounter->clear();
+        curUnsentCmdLen = 0;
     }
-
-    virtual void requestStatusUpdate() = 0;
 
 private:
     static GCodeDevice *inst;
@@ -211,7 +214,7 @@ public:
     
 private:
     //DoubleCommandQueue<16, 100, 3> commandQueue;
-    SimpleCounter<16,100> sentQueue;
+    SimpleCounter<15,128> sentQueue;
     
     String lastReceivedResponse;
 

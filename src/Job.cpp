@@ -16,7 +16,7 @@ void Job::readNextLine() {
     }
     while( gcodeFile.available()>0 ) {
         int rd = gcodeFile.read();
-        filePos++;  notify_observers(JobStatusEvent{0});
+        filePos++;  if(filePos%200==0) notify_observers(JobStatusEvent{0}); // every Nth byte
         if(rd=='\n' || rd=='\r') {
             if(curLinePos!=0) break; // if it's an empty string or LF after last CR, just continue reading
         } else {
@@ -32,6 +32,10 @@ void Job::readNextLine() {
 }
 
 bool Job::scheduleNextCommand(GCodeDevice *dev) {
+    if(dev->isInPanic() ) {
+        cancel();
+        return false;
+    }
     
     if(curLinePos==0) {
         readNextLine();
@@ -40,7 +44,10 @@ bool Job::scheduleNextCommand(GCodeDevice *dev) {
         char* pos = strchr(curLine, ';');
         if(pos!=NULL) {*pos = 0; curLinePos = pos-curLine; }
 
-        if(curLinePos==0) { return true; } // can seek next
+        bool empty=false;//true;
+        //for(int i=0; i<curLinePos; i++) if(!isspace(curLine[i])) empty=false;
+
+        if(curLinePos==0 || empty) { return true; } // can seek next
 
         #ifdef ADD_LINENUMBERS
             char out[MAX_LINE+1];

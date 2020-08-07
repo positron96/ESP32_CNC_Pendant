@@ -94,7 +94,7 @@ protected:
     }
 
 
-    void onButtonPressed(Button bt) override {
+    void onButtonPressed(Button bt, int8_t arg) override {
         switch(bt) {
             case Button::ENC_UP:
                 selLine--;
