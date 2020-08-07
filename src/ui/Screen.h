@@ -4,6 +4,8 @@
 
 #include <U8g2lib.h>
 
+#include <etl/vector.h>
+
 #include "../devices/GCodeDevice.h"
 #include "../InetServer.h"
 #include "../Job.h"
@@ -48,50 +50,27 @@ protected:
 
     bool dirty;
 
+    int selMenuItem=0;
+
+    etl::vector<String, 10> menuItems;
+
     virtual void drawContents() = 0;
 
     virtual void onButtonPressed(Button bt) {};
 
     virtual void onPotValueChanged(int pot, int val) {};
 
+    //virtual etl::ivector<String> & getMenuItems() = 0;
+    virtual void onMenuItemSelected(uint8_t item) {};
+
 private:
 
-    void processEnc() {
-        static int lastEnc;
-        if(encVal != lastEnc) {
-            int8_t dx = (encVal - lastEnc);
-            onButtonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP);
-        }
-        lastEnc = encVal;
-    }
+    void processEnc();
 
-    void processButtons() {
-        static bool lastButtPressed[3];
-        static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
-        for(int i=0; i<3; i++) {
-            if(lastButtPressed[i] != buttonPressed[i]) {
-                //DEBUGF("button changed: %d %d\n", i, buttonPressed[i] );
-                if(buttonPressed[i]) {
-                    onButtonPressed(buttons[i]);
-                }
-                lastButtPressed[i] = buttonPressed[i];
-            }
-        }
-    }
+    void processButtons();
 
-    void processPot() {
-        static int lastPotVal[2] = {0,0};
-        
-        for(int i=0; i<2; i++) {
-            if(lastPotVal[i] != potVal[i]) {
-                onPotValueChanged(i, potVal[i]);
-                lastPotVal[i] = potVal[i];
-            }
-        }
-    }
+    void processPot();   
 
-    void drawMessageBox() {
-        //u8g2.userInterfaceMessage
-    }
-    
+    void drawMenu() ;
+
 };

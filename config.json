@@ -1,4 +1,15 @@
 {
-    "essid": "YOUR NETWORK",
-    "password": "WIFI PASSWORD"
+    "web": {
+        "essid": "YOUR NETWORK",
+        "password": "WIFI PASSWORD"
+    },
+    "menu": {
+        "grbl": {
+            "HHome": "$H",
+            "LLaser": "M4 S1"
+        },
+        "marlin": {
+            "HHome": "G28"
+        }
+    }
 }

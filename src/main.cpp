@@ -117,7 +117,8 @@ void setup() {
     job->add_observer( dro );
     job->add_observer( fileChooser );
 
-    dro.begin();
+    dro.config(cfg["menu"].as<JsonObjectConst>() );
+    dro.begin( );
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -130,7 +131,7 @@ void setup() {
         }
     } );
 
-    server.begin( cfg.as<JsonObjectConst>() );
+    server.begin( cfg["web"].as<JsonObjectConst>() );
     file.close();
     
 }
@@ -146,7 +147,7 @@ void deviceLoop(void* pvParams) {
     
     //GCodeDevice::setDevice(dev);
     dev->add_observer( *job );
-    dev->add_observer(dro);
+    dev->add_observer(dro); dro.setDevice(dev);
     dev->add_observer(fileChooser);
     dev->begin();
     dev->enableStatusUpdates();

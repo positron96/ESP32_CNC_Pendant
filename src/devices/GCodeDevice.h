@@ -95,6 +95,8 @@ public:
         else nextStatusRequestTime = 0;
     }
 
+    const char* getType() { return typeStr; }
+
     String getDescrption() { return desc; }
 
     size_t getQueueLength() {  
@@ -112,6 +114,7 @@ protected:
     uint32_t serialRxTimeout;
     bool connected;
     String desc;
+    const char* typeStr;
     size_t buf0Len, buf1Len;
 
     static const size_t MAX_GCODE_LINE = 96;
@@ -175,6 +178,7 @@ public:
 
     GrblDevice(Stream * s): GCodeDevice(s, 100, 100) { 
         desc = "Grbl"; 
+        typeStr = "grbl";
         sentCounter = &sentQueue; 
     };
     GrblDevice() : GCodeDevice() {desc = "Grbl"; sentCounter = &sentQueue; }
@@ -224,6 +228,7 @@ public:
 
     MarlinDevice(Stream * s): GCodeDevice(s, 100, 200) { 
         desc="Marlin"; 
+        typeStr = "marlin";
         sentCounter = &sentQueue;
     }
     MarlinDevice() : GCodeDevice() {desc = "Marlin"; sentCounter = &sentQueue;}

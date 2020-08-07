@@ -1,5 +1,8 @@
 #pragma once
 
+#include <ArduinoJson.h> 
+#include <etl/map.h>
+
 #include "Screen.h"
 
 #include "../devices/GCodeDevice.h"
@@ -40,8 +43,12 @@ float distVal(const JogDist &a) {
 
 class DRO: public Screen {
 public:
+
+    DRO() : devMenu(nullptr) {}
     
-    //virtual void begin() {};
+    void begin() override {
+        menuItems.push_back("oFile...");
+    };
 
     /*void loop() override {
         if(millis()>nextRefresh) {
@@ -50,12 +57,39 @@ public:
         }
     };*/
 
+    void config(JsonObjectConst cfg) {
+        for (JsonPairConst kv : cfg) {
+            etl::map<String, String, 10> devMenu{};
+            S_DEBUGF("Device menu %s\n", kv.key().c_str() );                
+            allMenuItems[ String( kv.key().c_str() )] = devMenu;
+            for (JsonPairConst cmd : kv.value().as<JsonObject>() ) {
+                devMenu[ String(cmd.key().c_str()) ] = cmd.value().as<String>();
+                S_DEBUGF(" %s=%s\n", cmd.key().c_str(), cmd.value().as<char*>()); 
+                if( devMenu.available()==0) break;
+            }
+            if( allMenuItems.available()==0) break;
+        }
+    }
+
+    void setDevice(GCodeDevice *dev) {
+        String t = dev->getType();
+        if( allMenuItems.find(t) == allMenuItems.end() ) return;
+        devMenu = &allMenuItems[t];
+        for(auto r: *devMenu) {
+            menuItems.push_back(r.first);
+            if(menuItems.available()==0) break;
+        }
+    }
+
 private:
+    etl::imap<String,String> * devMenu;
 
     JogAxis cAxis;
     JogDist cDist;
     uint32_t nextRefresh;
     uint32_t lastJog;
+
+    etl::map<String, etl::map<String,String, 10>, 3> allMenuItems;
 
 protected:
 
@@ -136,7 +170,30 @@ protected:
         } 
     }
 
-    virtual void onButtonPressed(Button bt) override {
+    void onMenuItemSelected(uint8_t item) override {
+        if(item==0) { 
+            // go to file manager
+            return;
+        }
+        
+        const char* cmd = devMenu->at( menuItems[item] ).c_str();
+
+        GCodeDevice *dev = GCodeDevice::getDevice();
+        assert(dev!=nullptr);
+
+        const char *p1 = cmd, *p2 = strchr(cmd, '\n');
+        while(p2!=nullptr) {
+            dev->scheduleCommand(p1, p2-p1);
+            p1 = p2+1;
+            p2 = strchr(p1, '\n');
+        }
+        p2 = cmd + strlen(cmd);
+        dev->scheduleCommand(p1, p2-p1);
+
+        setDirty(true);
+    };
+
+    void onButtonPressed(Button bt) override {
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) {
             S_DEBUGF("device is null\n");

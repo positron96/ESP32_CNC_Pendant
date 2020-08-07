@@ -14,6 +14,10 @@ public:
         //const char* t = cDir.name();
         //FC_DEBUGF("loadDirContents: cdir is %s\n", t);
         loadDirContents(SD.open("/"), 0 );
+
+        menuItems.push_back("xClose");
+        menuItems.push_back("yOpen");
+        menuItems.push_back("^Up");
     }
     
 
