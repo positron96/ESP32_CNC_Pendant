@@ -62,8 +62,11 @@ void bt3ISR();
 bool detectPrinterAttempt(uint32_t speed, uint8_t type);
 void detectPrinter();
 
-void deviceLoop(void* pvParams);
+void deviceLoop(void* );
 TaskHandle_t deviceTask;
+
+void wifiLoop(void * );
+TaskHandle_t wifiTask;
 
 
 void setup() {
@@ -106,9 +109,16 @@ void setup() {
     DeserializationError error = deserializeJson(cfg, file);
     if (error)  Serial.println(F("Failed to read file, using default configuration"));
  
+    server.config( cfg["web"].as<JsonObjectConst>() );
+    server.add_observer(dro);
+
 
     xTaskCreatePinnedToCore(deviceLoop, "DeviceTask", 
         4096, nullptr, 1, &deviceTask, 1); // cpu1 
+
+    xTaskCreatePinnedToCore(wifiLoop, "WifiTask", 
+        4096, nullptr, 1, &wifiTask, 1); // cpu1 
+    
     
     job = Job::getJob();
 
@@ -131,8 +141,8 @@ void setup() {
         }
     } );
 
-    server.begin( cfg["web"].as<JsonObjectConst>() );
     file.close();
+
     
 }
 
@@ -147,14 +157,18 @@ void deviceLoop(void* pvParams) {
     
     //GCodeDevice::setDevice(dev);
     dev->add_observer( *job );
-    dev->add_observer(dro); dro.setDevice(dev);
+    dev->add_observer(dro);   dro.setDevice(dev);
     dev->add_observer(fileChooser);
     dev->begin();
-    dev->enableStatusUpdates();
-    
+   
     while(1) {
         dev->loop();
     }
+    vTaskDelete( NULL );
+}
+
+void wifiLoop(void* args) {
+    server.begin();
     vTaskDelete( NULL );
 }
 
@@ -170,6 +184,7 @@ void loop() {
 
     if(cScreen != nullptr) {
         cScreen->processInput();
+        cScreen->loop();
         cScreen->draw();
     }
 

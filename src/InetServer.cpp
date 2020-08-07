@@ -13,17 +13,18 @@
 
 WebServer* WebServer::inst = nullptr;
 
+void WebServer::config(JsonObjectConst cfg ) {
 
-void WebServer::begin(JsonObjectConst cfg) {
+    essid = cfg.containsKey("essid") ? cfg["essid"].as<String>() : "WiFi";
+    password = cfg.containsKey("password") ? cfg["password"].as<String>() : "Password";
+    hostname = cfg.containsKey("hostname") ? cfg["hostname"].as<String>() : "espendant";
+
+}
+
+void WebServer::begin() {
 
     
-    //File cfg = SD.open("/config.txt");
-    String essid = cfg.containsKey("essid") ? cfg["essid"].as<String>() : "MelNet";
-    String pass = cfg.containsKey("password") ? cfg["password"].as<String>() : "";
-
-    String hostname = cfg.containsKey("hostname") ? cfg["hostname"].as<String>() : "espendant";
-
-    WiFi.begin(essid.c_str(), pass.c_str() );
+    WiFi.begin(essid.c_str(), password.c_str() );
 
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -55,12 +56,16 @@ void WebServer::begin(JsonObjectConst cfg) {
 
     server.begin();
     running = true;
+    notify_observers( WebServerStatusEvent{0} );
 
 }
 
 void WebServer::stop() {
-    server.end();
-    running = false;
+    if(running) {
+        server.end();
+        running = false;
+        notify_observers( WebServerStatusEvent{0} );
+    }
 }
 
 inline String stringify(bool value) {
@@ -209,7 +214,7 @@ void WebServer::registerOptoPrintApi() {
         int32_t printTime=0, printTimeLeft = INT32_MAX;
         if (job->isRunning() ) {
             printTime = job->getPrintDuration() / 1000;
-            float p = job->getPercentage();
+            float p = job->getCompletion();
             printTimeLeft = (p > 0) ? printTime / p * (1-p) : INT32_MAX;
         }
         
@@ -227,7 +232,7 @@ void WebServer::registerOptoPrintApi() {
                 //"    }\r\n"
                 "  },\r\n"
                 "  \"progress\": {\r\n"
-                "    \"completion\": " + String(job->getPercentage()*100 ) + ",\r\n"
+                "    \"completion\": " + String(job->getCompletion()*100 ) + ",\r\n"
                 "    \"filepos\": " + String(job->getFilePos()) + ",\r\n"
                 //"    \"filepos\": 0,\r\n"
                 "    \"printTime\": " + String(printTime) + ",\r\n"
@@ -391,7 +396,8 @@ void WebServer::handleUpload(AsyncWebServerRequest *request, String filename, si
         if(SD.exists(uploadedFilePath)) SD.remove(uploadedFilePath);
         file = SD.open(uploadedFilePath, "w"); // create or truncate file
         if(!file) { request->send(400, "text/plain", "Could not open file"); return; }
-        downloading = true;
+        downloading = true;  notify_observers( WebServerStatusEvent{1} );
+
     }
 
     if(!file) return;
@@ -403,7 +409,7 @@ void WebServer::handleUpload(AsyncWebServerRequest *request, String filename, si
         Serial.printf("uploaded\n");
         uploadedFileSize = index + len;
         file.close();
-        downloading = false;
+        downloading = false;  notify_observers( WebServerStatusEvent{1} );
     }
 }
 

@@ -4,14 +4,23 @@
 #include <ESPAsyncWebServer.h>  
 #include <ArduinoJson.h>   // for implementing a subset of the OctoPrint API
 
+#include <etl/observer.h>
 
-class WebServer {
+struct WebServerStatusEvent { int statusField; };
+
+typedef etl::observer<const WebServerStatusEvent&> WebServerObserver;
+
+class WebServer : public etl::observable<WebServerObserver, 3> {
 public:
     WebServer(uint16_t port=80): server(port) , port(port) {
         inst = this;
     }
 
-    void begin(JsonObjectConst cfg = JsonObjectConst() );
+    ~WebServer() { clear_observers(); }
+
+    void config(JsonObjectConst cfg = JsonObjectConst() );
+
+    void begin();
 
     void stop();
 
@@ -26,7 +35,9 @@ private:
     static WebServer * inst;
 
     AsyncWebServer server;
+    String essid, password;
     uint16_t port;
+    String hostname;
 
     String uploadedFilePath;
     size_t uploadedFileSize;
