@@ -151,11 +151,45 @@ void GCodeDevice::sendCommands() {
     }
     if(curUnsentCmdLen==0) return;
 
+    trySendCommand();
+
+}
+
+
+bool GrblDevice::isCmdRealtime() {
+    if (curUnsentCmdLen != 1) return false;
+    char c = curUnsentCmd[0];
+    switch(c) {
+        case '?': // status
+        case '~': // cycle start/stop
+        case '!': // feedhold
+        case 0x18: // ^x, reset
+        case 0x84: // door
+        case 0x85: // jog cancel  
+        case 0x9E: // toggle spindle
+        case 0xA0: // toggle flood coolant
+        case 0xA1: // toggle mist coolant      
+            return true;
+        default:
+            // feed override, rapid override, spindle override
+            if( c>=0x90 && c<=0x9D) return true;
+            return false;
+    }
+}
+
+void GrblDevice::trySendCommand() {
+
+    if(isCmdRealtime()) {
+        printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
+        GD_DEBUGF("<  (f%3d,%3d) '%c' RT\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd[0] );
+        curUnsentCmdLen = 0;
+        return;
+    }
+
     if( sentCounter->canPush(curUnsentCmdLen) ) {
         sentCounter->push( curUnsentCmd, curUnsentCmdLen );
         printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
         printerSerial->print('\n');
-        armRxTimeout();
         GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
         curUnsentCmdLen = 0;
     } else {
@@ -163,10 +197,6 @@ void GCodeDevice::sendCommands() {
     }
 
 }
-
-
-
-
 
 void GrblDevice::receiveResponses() {
 
@@ -248,6 +278,19 @@ void GrblDevice::parseGrblStatus(String v) {
 
 bool startsWith(const char *str, const char *pre) {
     return strncmp(pre, str, strlen(pre)) == 0;
+}
+
+void MarlinDevice::trySendCommand() {
+    if( sentCounter->canPush(curUnsentCmdLen) ) {
+        sentCounter->push( curUnsentCmd, curUnsentCmdLen );
+        printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
+        printerSerial->print('\n');
+        armRxTimeout();
+        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
+        curUnsentCmdLen = 0;
+    } else {
+        //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
+    }
 }
 
 void MarlinDevice::receiveResponses() {

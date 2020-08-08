@@ -120,6 +120,7 @@ protected:
     String desc;
     const char* typeStr;
     size_t buf0Len, buf1Len;
+    bool canTimeout;
 
     static const size_t MAX_GCODE_LINE = 96;
     char curUnsentCmd[MAX_GCODE_LINE+1];
@@ -137,17 +138,19 @@ protected:
     Counter * sentCounter;
 
     void armRxTimeout() {
+        if(!canTimeout) return;
         //GD_DEBUGLN(enable ? "GCodeDevice::resetRxTimeout enable" : "GCodeDevice::resetRxTimeout disable");
         serialRxTimeout = millis() + KEEPALIVE_INTERVAL;
     };
-    void disarmRxTimeout() {        
+    void disarmRxTimeout() { 
+        if(!canTimeout) return;  
         serialRxTimeout=0; 
     };
     void updateRxTimeout(bool waitingMore) {
         if(isRxTimeoutEnabled() ) { if(!waitingMore) disarmRxTimeout(); else armRxTimeout(); }
     }
 
-    bool isRxTimeoutEnabled() { return serialRxTimeout!=0; }
+    bool isRxTimeoutEnabled() { return canTimeout && serialRxTimeout!=0; }
 
     void checkTimeout() {
         if( !isRxTimeoutEnabled() ) return;
@@ -167,6 +170,8 @@ protected:
         curUnsentCmdLen = 0;
     }
 
+    virtual void trySendCommand() = 0;
+
 private:
     static GCodeDevice *inst;
 
@@ -179,10 +184,11 @@ private:
 class GrblDevice : public GCodeDevice {
 public:
 
-    GrblDevice(Stream * s): GCodeDevice(s, 100, 100) { 
+    GrblDevice(Stream * s): GCodeDevice(s, 20, 100) { 
         desc = "Grbl"; 
         typeStr = "grbl";
         sentCounter = &sentQueue; 
+        canTimeout = false;
     };
     GrblDevice() : GCodeDevice() {desc = "Grbl"; sentCounter = &sentQueue; }
 
@@ -190,8 +196,8 @@ public:
 
     virtual bool jog(uint8_t axis, float dist, int feed) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z'};
-        char msg[81]; snprintf(msg, 81, "$J=G91 F%d %c%04f", feed, AXIS[axis], dist);
-        return schedulePriorityCommand(msg);
+        char msg[81]; snprintf(msg, 81, "$J=G91 F%d %c%.3f", feed, AXIS[axis], dist);
+        return scheduleCommand(msg);
     }
 
     virtual void begin() {
@@ -211,6 +217,9 @@ public:
     virtual void requestStatusUpdate() override {        
         schedulePriorityCommand("?");
     }
+
+protected:
+    void trySendCommand() override;
     
 private:
     //DoubleCommandQueue<16, 100, 3> commandQueue;
@@ -219,6 +228,8 @@ private:
     String lastReceivedResponse;
 
     void parseGrblStatus(String v);
+
+    bool isCmdRealtime();
 
 };
 
@@ -233,6 +244,7 @@ public:
         desc="Marlin"; 
         typeStr = "marlin";
         sentCounter = &sentQueue;
+        canTimeout = true;
     }
     MarlinDevice() : GCodeDevice() {desc = "Marlin"; sentCounter = &sentQueue;}
 
@@ -277,6 +289,10 @@ public:
     const Temperature & getBedTemp() const { return bedTemperature; }
     const Temperature & getExtruderTemp(uint8_t e) const { return toolTemperatures[e]; }
     uint8_t getExtruderCount() const { return fwExtruders; }
+
+protected:
+
+    void trySendCommand() override;
 
 private:
 

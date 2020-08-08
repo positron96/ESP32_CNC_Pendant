@@ -54,14 +54,14 @@ public:
 
     void loop() override {
         Screen::loop();
-        /*if(millis()>nextRefresh) {
+        if(millis()>nextRefresh) {
             nextRefresh = millis() + 500;
             GCodeDevice *dev = GCodeDevice::getDevice();
             if (dev!=nullptr) {
                 dev->requestStatusUpdate();
                 setDirty();
             }
-        }*/
+        }
     }
 
     void config(JsonObjectConst cfg) {
@@ -111,7 +111,7 @@ protected:
         char str[LEN];
         
         snprintf(str, LEN, "%c% 8.3f", axis, v );
-        u8g2.drawStr(0, y, str );
+        u8g2.drawStr(1, y, str );
         //u8g2.drawGlyph();
     }
 
@@ -128,7 +128,7 @@ protected:
         //u8g2.drawGlyph(0, y+h*(int)cAxis, '>' ); 
 
         u8g2.setDrawColor(1);
-        u8g2.drawBox(0, y+h*(int)cAxis-1, 6, h);
+        u8g2.drawBox(0, y+h*(int)cAxis-1, 8, h);
 
         u8g2.setDrawColor(2);
 
@@ -184,6 +184,9 @@ protected:
     }
 
     void onMenuItemSelected(uint8_t item) override {
+        
+        setDirty(true);
+
         if(item==0) { 
             S_DEBUGF("Should open file selector here\n");
             // go to file manager
@@ -211,7 +214,6 @@ protected:
         p2 = cmd + strlen(cmd);
         dev->scheduleCommand(p1, p2-p1);
 
-        setDirty(true);
     };
 
     void onButtonPressed(Button bt, int8_t arg) override {

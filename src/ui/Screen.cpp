@@ -21,8 +21,8 @@ int Screen::encVal = 0;
             if(lastButtPressed[i] != buttonPressed[i]) {
                 S_DEBUGF("button%d changed: %d\n", i, buttonPressed[i] );
                 if(buttonPressed[i]) {
-                    if(i==0) if(selMenuItem>0) { selMenuItem--; setDirty(); }
-                    if(i==2) if(selMenuItem<menuItems.size()-1 ) { selMenuItem++; setDirty(); }
+                    if(i==0) { selMenuItem = selMenuItem>0 ? selMenuItem-1 : menuItems.size()-1;  setDirty(); }
+                    if(i==2) { selMenuItem = (selMenuItem+1) % menuItems.size(); setDirty(); }
                     if(i==1) onMenuItemSelected(selMenuItem);
                     //onButtonPressed(buttons[i]);
                 }
