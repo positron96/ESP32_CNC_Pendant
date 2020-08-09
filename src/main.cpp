@@ -8,6 +8,7 @@
 #include "Job.h"
 #include "ui/FileChooser.h"
 #include "ui/DRO.h"
+#include "ui/GrblDRO.h"
 #include "InetServer.h"
 
 HardwareSerial PrinterSerial(2);
@@ -35,7 +36,7 @@ HardwareSerial PrinterSerial(2);
 
 
 U8G2_ST7920_128X64_F_HW_SPI u8g2_{U8G2_R3, PIN_CE_LCD, PIN_RST_LCD}; 
-U8G2 &Screen::u8g2 = u8g2_;
+U8G2 &Display::u8g2 = u8g2_;
 
 
 WebServer server;
@@ -48,9 +49,10 @@ enum class Mode {
     DRO, FILECHOOSER
 };
 
+Display display;
 FileChooser fileChooser;
-DRO dro;
-Screen *cScreen = nullptr;
+uint8_t droBuffer[ sizeof(GrblDRO) ];
+DRO *dro;
 Mode cMode = Mode::DRO;
 
 
@@ -110,7 +112,7 @@ void setup() {
     if (error)  Serial.println(F("Failed to read file, using default configuration"));
  
     server.config( cfg["web"].as<JsonObjectConst>() );
-    server.add_observer(dro);
+    server.add_observer(display);
 
 
     xTaskCreatePinnedToCore(deviceLoop, "DeviceTask", 
@@ -121,14 +123,10 @@ void setup() {
     
     
     job = Job::getJob();
+    job->add_observer( display );
 
-    cScreen = &dro;
+    //dro.config(cfg["menu"].as<JsonObjectConst>() );
 
-    job->add_observer( dro );
-    job->add_observer( fileChooser );
-
-    dro.config(cfg["menu"].as<JsonObjectConst>() );
-    dro.begin( );
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
         if(res) { 
@@ -136,7 +134,6 @@ void setup() {
             job->resume();
             
             cMode = Mode::DRO;
-            cScreen = &dro;
             dev->enableStatusUpdates();
         }
     } );
@@ -157,9 +154,17 @@ void deviceLoop(void* pvParams) {
     
     //GCodeDevice::setDevice(dev);
     dev->add_observer( *job );
-    dev->add_observer(dro);   dro.setDevice(dev);
-    dev->add_observer(fileChooser);
+    dev->add_observer(display);
+    //dev->add_observer(dro);  // dro.setDevice(dev);
+    //dev->add_observer(fileChooser);
     dev->begin();
+
+    if(dev->getType() == "grbl") {
+        dro = new (droBuffer) GrblDRO();
+    } else dro = new (droBuffer) DRO();
+    dro->begin( );
+
+    display.setScreen(dro);
    
     while(1) {
         dev->loop();
@@ -173,8 +178,8 @@ void wifiLoop(void* args) {
 }
 
 void readPots() {
-    Screen::potVal[0] = analogRead(PIN_POT1);
-    Screen::potVal[1] = analogRead(PIN_POT2);
+    Display::potVal[0] = analogRead(PIN_POT1);
+    Display::potVal[1] = analogRead(PIN_POT2);
 }
 
 void loop() {
@@ -182,11 +187,9 @@ void loop() {
 
     job->loop();
 
-    if(cScreen != nullptr) {
-        cScreen->processInput();
-        cScreen->loop();
-        cScreen->draw();
-    }
+    
+    display.loop();
+    display.draw();
 
     if(dev==nullptr) return;
 
@@ -222,36 +225,36 @@ IRAM_ATTR void encISR() {
     int v1 = digitalRead(PIN_ENC1);
     int v2 = digitalRead(PIN_ENC2);
     if(v1==HIGH && last1==LOW) {
-        if(v2==HIGH) Screen::encVal++; else Screen::encVal--;
+        if(v2==HIGH) Display::encVal++; else Display::encVal--;
     }
     if(v1==LOW && last1==HIGH) {
-        if(v2==LOW) Screen::encVal++; else Screen::encVal--;
+        if(v2==LOW) Display::encVal++; else Display::encVal--;
     }
     last1 = v1;
 }
 
 
 IRAM_ATTR void btChanged(uint8_t button, uint8_t val) {
-  Screen::buttonPressed[button] = val==LOW;
+    Display::buttonPressed[button] = val==LOW;
 }
 
 IRAM_ATTR void bt1ISR() {
-  static long lastChangeTime = millis();
-  if(millis() < lastChangeTime+10) return;
-  lastChangeTime = millis();
-  btChanged(0, digitalRead(PIN_BT1) );
+    static long lastChangeTime = millis();
+    if(millis() < lastChangeTime+10) return;
+    lastChangeTime = millis();
+    btChanged(0, digitalRead(PIN_BT1) );
 }
 
 IRAM_ATTR void bt2ISR() {
-  static long lastChangeTime = millis();
-  if(millis() < lastChangeTime+10) return;
-  lastChangeTime = millis();
-  btChanged(1, digitalRead(PIN_BT2) );
+    static long lastChangeTime = millis();
+    if(millis() < lastChangeTime+10) return;
+    lastChangeTime = millis();
+    btChanged(1, digitalRead(PIN_BT2) );
 }
 
 IRAM_ATTR void bt3ISR() {
-  static long lastChangeTime = millis();
-  if(millis() < lastChangeTime+10) return;
-  lastChangeTime = millis();
-  btChanged(2, digitalRead(PIN_BT3) );
+    static long lastChangeTime = millis();
+    if(millis() < lastChangeTime+10) return;
+    lastChangeTime = millis();
+    btChanged(2, digitalRead(PIN_BT3) );
 }

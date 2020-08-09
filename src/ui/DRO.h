@@ -44,12 +44,14 @@ float distVal(const JogDist &a) {
 class DRO: public Screen {
 public:
 
-    DRO() : devMenu(nullptr) {}
+    DRO() {}
     
     void begin() override {
+        /*
         menuItems.push_back("oFile...");
         menuItems.push_back("xReset");
         menuItems.push_back("uUpdate");
+        */
     };
 
     void loop() override {
@@ -64,6 +66,7 @@ public:
         }
     }
 
+/*
     void config(JsonObjectConst cfg) {
         for (JsonPairConst kv : cfg) {
             etl::map<String, String, 10> devMenu{};
@@ -92,26 +95,26 @@ public:
             menuItems.push_back(r.first);
             if(menuItems.available()==0) break;
         }
-    }
+    } */
 
 private:
-    etl::imap<String,String> * devMenu;
+    //etl::imap<String,String> * devMenu;
+
+    //etl::map<String, etl::map<String,String, 10>, 3> allMenuItems;
+
+protected:
 
     JogAxis cAxis;
     JogDist cDist;
     uint32_t nextRefresh;
     uint32_t lastJog;
 
-    etl::map<String, etl::map<String,String, 10>, 3> allMenuItems;
-
-protected:
-
     void drawAxis(char axis, float v, int y) {
         const int LEN=20;
         char str[LEN];
         
         snprintf(str, LEN, "%c% 8.3f", axis, v );
-        u8g2.drawStr(1, y, str );
+        Display::u8g2.drawStr(1, y, str );
         //u8g2.drawGlyph();
     }
 
@@ -122,8 +125,10 @@ protected:
         GCodeDevice *dev = GCodeDevice::getDevice();
         if(dev==nullptr) return;
 
+        U8G2 &u8g2 = Display::u8g2;
+
         u8g2.setFont( u8g2_font_7x13B_tr );
-        int y = STATUS_BAR_HEIGHT+3, h=u8g2.getAscent()-u8g2.getDescent()+3;
+        int y = Display::STATUS_BAR_HEIGHT+3, h=u8g2.getAscent()-u8g2.getDescent()+3;
 
         //u8g2.drawGlyph(0, y+h*(int)cAxis, '>' ); 
 
@@ -141,14 +146,7 @@ protected:
         float m = distVal(cDist);
         snprintf(str, LEN, m<1 ? "x%.1f" : "x%.0f", m );
         u8g2.drawStr(0, y, str);
-        
-
-        //Job *job = Job::getJob();
-        //u8g2.drawStr(0, 40, job->isPaused() ? "P" : "");
-        
-        //snprintf(str, 100, "%d%%", int(job->getPercentage()*100) );
-        //u8g2.drawStr(10, 40, str);
-        
+                
     };
 
     void onPotValueChanged(int pot, int v) override {
@@ -183,7 +181,8 @@ protected:
         } 
     }
 
-    void onMenuItemSelected(uint8_t item) override {
+/*
+    void onMenuItemSelected(MenuItem & item) override {
         
         setDirty(true);
 
@@ -215,6 +214,7 @@ protected:
         dev->scheduleCommand(p1, p2-p1);
 
     };
+    */
 
     void onButtonPressed(Button bt, int8_t arg) override {
         GCodeDevice *dev = GCodeDevice::getDevice();
@@ -229,21 +229,11 @@ protected:
                 float d = distVal(cDist)*arg;
                 if( lastJog!=0) { f = d / (millis()-lastJog) * 1000*60; };
                 if(f<500) f=500;
-                S_DEBUGF("jog af %d, dt=%d ms, delta=%d\n", (int)f, millis()-lastJog, arg);
+                //S_DEBUGF("jog af %d, dt=%d ms, delta=%d\n", (int)f, millis()-lastJog, arg);
                 bool r = dev->jog( (int)cAxis, d, (int)f );
                 lastJog = millis();
                 if(!r) S_DEBUGF("Could not schedule jog\n");
                 setDirty();
-                break;
-            }
-            
-            case Button::BT1: {
-                S_DEBUGF("homing\n");
-                dev->scheduleCommand("G28");
-                break;
-            }
-            case Button::BT3: {
-                dev->reset();
                 break;
             }
             default: break;

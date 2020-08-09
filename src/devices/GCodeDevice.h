@@ -97,7 +97,7 @@ public:
         else nextStatusRequestTime = 0;
     }
 
-    const char* getType() { return typeStr; }
+    String getType() { return typeStr; }
 
     String getDescrption() { return desc; }
 
@@ -118,7 +118,7 @@ protected:
     uint32_t serialRxTimeout;
     bool connected;
     String desc;
-    const char* typeStr;
+    String typeStr;
     size_t buf0Len, buf1Len;
     bool canTimeout;
 
@@ -185,12 +185,11 @@ class GrblDevice : public GCodeDevice {
 public:
 
     GrblDevice(Stream * s): GCodeDevice(s, 20, 100) { 
-        desc = "Grbl"; 
         typeStr = "grbl";
         sentCounter = &sentQueue; 
         canTimeout = false;
     };
-    GrblDevice() : GCodeDevice() {desc = "Grbl"; sentCounter = &sentQueue; }
+    GrblDevice() : GCodeDevice() {typeStr = "grbl"; sentCounter = &sentQueue; }
 
     virtual ~GrblDevice() {}
 
@@ -218,16 +217,30 @@ public:
         schedulePriorityCommand("?");
     }
 
+    /// WPos = MPos - WCO
+    float getXOfs() { return ofsX; } 
+    float getYOfs() { return ofsY; }
+    float getZOfs() { return ofsZ; }
+    uint getSpindleVal() { return spindleVal; }
+    uint getFeed() { return feed; }
+    String & getStatus() { return status; }
+
 protected:
     void trySendCommand() override;
     
 private:
-    //DoubleCommandQueue<16, 100, 3> commandQueue;
+    
     SimpleCounter<15,128> sentQueue;
     
     String lastReceivedResponse;
 
-    void parseGrblStatus(String v);
+    String status;
+
+    //WPos = MPos - WCO
+    float ofsX,ofsY,ofsZ;
+    int feed, spindleVal;
+
+    void parseGrblStatus(char* v);
 
     bool isCmdRealtime();
 
@@ -241,12 +254,11 @@ class MarlinDevice: public GCodeDevice {
 public:
 
     MarlinDevice(Stream * s): GCodeDevice(s, 100, 200) { 
-        desc="Marlin"; 
         typeStr = "marlin";
         sentCounter = &sentQueue;
         canTimeout = true;
     }
-    MarlinDevice() : GCodeDevice() {desc = "Marlin"; sentCounter = &sentQueue;}
+    MarlinDevice() : GCodeDevice() {typeStr = "marlin";; sentCounter = &sentQueue;}
 
     virtual ~MarlinDevice() {}
 
@@ -367,3 +379,6 @@ private:
     static GCodeDevice* checkProbe(uint8_t i, String v, Stream &serial) ;
 
 };
+
+
+bool startsWith(const char *str, const char *pre);

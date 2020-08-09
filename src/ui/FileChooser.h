@@ -15,9 +15,9 @@ public:
         //FC_DEBUGF("loadDirContents: cdir is %s\n", t);
         loadDirContents(SD.open("/"), 0 );
 
-        menuItems.push_back("xClose");
-        menuItems.push_back("yOpen");
-        menuItems.push_back("^Up");
+        //menuItems.push_back("xClose");
+        //menuItems.push_back("yOpen");
+        //menuItems.push_back("^Up");
     }
     
 
@@ -71,17 +71,18 @@ protected:
 
     void drawContents() {
 
+        U8G2 &u8g2 = Display::u8g2;
         //u8g2.setDrawColor(1);
         u8g2.setFont(u8g2_font_5x8_tr);
 
         const char* t = cDir.name();
-        int y = STATUS_BAR_HEIGHT;
+        int y = Display::STATUS_BAR_HEIGHT;
         u8g2.drawStr(1, y, t ); 
         u8g2.drawHLine(0, y+9, u8g2.getWidth() );
 
         const int nLines = min(MAX_FILES, maxLines-topLine);
         for(int i=0; i<nLines; i++) {
-            y = STATUS_BAR_HEIGHT+10 + i*10;
+            y = Display::STATUS_BAR_HEIGHT+10 + i*10;
             if(i+topLine == selLine) {
                 u8g2.setDrawColor( 1 );
                 u8g2.drawBox(0, y-1, u8g2.getWidth(), 10);
