@@ -2,9 +2,9 @@
 
 
 
-bool GrblDevice::isCmdRealtime() {
-    if (curUnsentCmdLen != 1) return false;
-    char c = curUnsentCmd[0];
+bool GrblDevice::isCmdRealtime(char* data, size_t len) {
+    if (len != 1) return false;
+    char c = data[0];
     switch(c) {
         case '?': // status
         case '~': // cycle start/stop
@@ -25,19 +25,22 @@ bool GrblDevice::isCmdRealtime() {
 
 void GrblDevice::trySendCommand() {
 
-    if(isCmdRealtime()) {
-        printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
-        GD_DEBUGF("<  (f%3d,%3d) '%c' RT\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd[0] );
-        curUnsentCmdLen = 0;
+    if(isCmdRealtime(curUnsentPriorityCmd, curUnsentPriorityCmdLen) ) {
+        printerSerial->write(curUnsentPriorityCmd, curUnsentPriorityCmdLen);  
+        GD_DEBUGF("<  (f%3d,%3d) '%c' RT\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentPriorityCmd[0] );
+        curUnsentPriorityCmdLen = 0;
         return;
     }
 
-    if( sentCounter->canPush(curUnsentCmdLen) ) {
-        sentCounter->push( curUnsentCmd, curUnsentCmdLen );
-        printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
+    char* cmd  = curUnsentPriorityCmdLen!=0 ? &curUnsentPriorityCmd[0] :  &curUnsentCmd[0]; 
+    size_t * len = curUnsentPriorityCmdLen!=0 ? &curUnsentPriorityCmdLen : &curUnsentCmdLen ;
+
+    if( sentCounter->canPush(*len) ) {
+        sentCounter->push( cmd, *len );
+        printerSerial->write(cmd, *len);  
         printerSerial->print('\n');
-        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
-        curUnsentCmdLen = 0;
+        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), cmd, *len );
+        *len = 0;
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
     }
@@ -140,7 +143,7 @@ void GrblDevice::parseGrblStatus(char* v) {
             st=pch+4;fi = strchr(st, ',');   mystrcpy(buf, st, fi);  ofsX = atof(buf);
             st=fi+1; fi = strchr(st, ',');   mystrcpy(buf, st, fi);  ofsY = atof(buf);
             st=fi+1;                                                 ofsZ = atof(st);
-            GD_DEBUGF("Parsed WCO: %f %f %f\n", ofsX, ofsY, ofsZ);
+            //GD_DEBUGF("Parsed WCO: %f %f %f\n", ofsX, ofsY, ofsZ);
         }
 
         pch = strtok(nullptr, "|"); 

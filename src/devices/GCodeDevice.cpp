@@ -132,24 +132,38 @@ void GCodeDevice::sendCommands() {
     static size_t nline=0;
     #endif
 
-    if(curUnsentCmdLen==0) {
+    if(curUnsentPriorityCmdLen == 0) {
         #ifdef ADD_LINECOMMENTS
             char tmp[MAX_GCODE_LINE+1];
-            curUnsentCmdLen = xMessageBufferReceive(buf0, tmp, MAX_GCODE_LINE, 0);
-            if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, tmp, MAX_GCODE_LINE, 0);
+            curUnsentPriorityCmdLen = xMessageBufferReceive(buf0, tmp, MAX_GCODE_LINE, 0);
+            if(curUnsentPriorityCmdLen!=0) {
+                tmp[curUnsentPriorityCmdLen] = 0;
+                snprintf(curUnsentPriorityCmd, MAX_GCODE_LINE, "%s ;%d", tmp, nline++);
+                curUnsentPriorityCmdLen = strlen(curUnsentPriorityCmd);
+            }
+        #else
+            curUnsentPriorityCmdLen = xMessageBufferReceive(buf0, curUnsentPriorityCmd, MAX_GCODE_LINE, 0);
+            curUnsentPriorityCmd[curUnsentPriorityCmdLen]=0;
+        #endif
+    }
+
+    if(curUnsentPriorityCmdLen==0 && curUnsentCmdLen==0) {
+        #ifdef ADD_LINECOMMENTS
+            char tmp[MAX_GCODE_LINE+1];
+            curUnsentCmdLen = xMessageBufferReceive(buf1, tmp, MAX_GCODE_LINE, 0);
             if(curUnsentCmdLen!=0) {
                 tmp[curUnsentCmdLen] = 0;
                 snprintf(curUnsentCmd, MAX_GCODE_LINE, "%s ;%d", tmp, nline++);
                 curUnsentCmdLen = strlen(curUnsentCmd);
             }
         #else
-            curUnsentCmdLen = xMessageBufferReceive(buf0, curUnsentCmd, MAX_GCODE_LINE, 0);
-            if(curUnsentCmdLen==0) curUnsentCmdLen = xMessageBufferReceive(buf1, curUnsentCmd, MAX_GCODE_LINE, 0);
+            curUnsentCmdLen = xMessageBufferReceive(buf1, curUnsentCmd, MAX_GCODE_LINE, 0);
             curUnsentCmd[curUnsentCmdLen] = 0; 
         #endif
         //loadedNewCmd = true;
     }
-    if(curUnsentCmdLen==0) return;
+
+    if(curUnsentCmdLen==0 && curUnsentPriorityCmdLen==0) return;
 
     trySendCommand();
 
@@ -171,13 +185,16 @@ bool startsWith(const char *str, const char *pre) {
 }
 
 void MarlinDevice::trySendCommand() {
-    if( sentCounter->canPush(curUnsentCmdLen) ) {
-        sentCounter->push( curUnsentCmd, curUnsentCmdLen );
-        printerSerial->write(curUnsentCmd, curUnsentCmdLen);  
+    char* cmd  = curUnsentPriorityCmdLen!=0 ? &curUnsentPriorityCmd[0] :  &curUnsentCmd[0]; 
+    size_t * len = curUnsentPriorityCmdLen!=0 ? &curUnsentPriorityCmdLen : &curUnsentCmdLen ;
+
+    if( sentCounter->canPush(*len) ) {
+        sentCounter->push( cmd, *len );
+        printerSerial->write(cmd, *len);  
         printerSerial->print('\n');
         armRxTimeout();
-        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentCmd, curUnsentCmdLen );
-        curUnsentCmdLen = 0;
+        GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), cmd, *len );
+        *len = 0;
     } else {
         //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
     }

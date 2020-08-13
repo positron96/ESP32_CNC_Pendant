@@ -30,12 +30,13 @@ protected:
         U8G2 &u8g2 = Display::u8g2;
 
         u8g2.setFont( u8g2_font_7x13B_tr );
-        int y = Display::STATUS_BAR_HEIGHT+2, h=u8g2.getAscent()-u8g2.getDescent()+1;
+        int y = Display::STATUS_BAR_HEIGHT+2, h=u8g2.getAscent()-u8g2.getDescent()+2;
 
         //u8g2.drawGlyph(0, y+h*(int)cAxis, '>' ); 
 
         u8g2.setDrawColor(1);
-        if(dev->getStatus() == "Idle")
+        String &status = dev->getStatus();
+        if(status == "Idle" || status=="Jogging")
             u8g2.drawBox(0, y+h*(int)cAxis-1, 8, h);
         else
             u8g2.drawFrame(0, y+h*(int)cAxis-1, 8, h);
@@ -61,7 +62,7 @@ protected:
         u8g2.drawStr(0, y, str);  y+=7;
         
         float m = distVal(cDist);
-        snprintf(str, LEN, m<1 ? "%c x%.1f" : "%c x%.0f", axisChar(cAxis), m );
+        snprintf(str, LEN, m<1 ? "%c x%.1f %s" : "%c x%.0f %s", axisChar(cAxis), m, status.c_str() );
         u8g2.drawStr(0, y, str);
                 
     };

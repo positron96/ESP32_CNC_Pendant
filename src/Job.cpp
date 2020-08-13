@@ -2,7 +2,7 @@
 
 Job Job::job;
 
-void Job::setJob(Job* _job) { job = *_job; }
+//void Job::setJob(Job* _job) { job = *_job; }
 
 Job * Job::getJob() { return &job; }
 

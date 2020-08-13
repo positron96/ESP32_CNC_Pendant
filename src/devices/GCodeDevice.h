@@ -55,11 +55,14 @@ public:
         return xMessageBufferSend(buf1, cmd, len, 0) != 0;
     };
     virtual bool schedulePriorityCommand(String cmd) { 
+        schedulePriorityCommand(cmd.c_str(), cmd.length() );
+    };
+    virtual bool schedulePriorityCommand( const char* cmd, size_t len) {
         if(panic) return false;
         if(!buf0) return false;
-        if(cmd.length()==0) return false;
-        return xMessageBufferSend(buf0, cmd.c_str(), cmd.length(), 0) != 0;
-    } ;
+        if(len==0) return false;
+        return xMessageBufferSend(buf0, cmd, len, 0) != 0;
+    }
     virtual bool canSchedule(size_t len) { 
         if(panic) return false;
         if(!buf1) return false; 
@@ -123,8 +126,8 @@ protected:
     bool canTimeout;
 
     static const size_t MAX_GCODE_LINE = 96;
-    char curUnsentCmd[MAX_GCODE_LINE+1];
-    size_t curUnsentCmdLen;
+    char curUnsentCmd[MAX_GCODE_LINE+1], curUnsentPriorityCmd[MAX_GCODE_LINE+1];
+    size_t curUnsentCmdLen, curUnsentPriorityCmdLen;
 
     float x,y,z;
     bool panic = false;
@@ -194,9 +197,9 @@ public:
     virtual ~GrblDevice() {}
 
     virtual bool jog(uint8_t axis, float dist, int feed) override {
-        constexpr const char AXIS[] = {'X', 'Y', 'Z'};
+        constexpr static char AXIS[] = {'X', 'Y', 'Z'};
         char msg[81]; snprintf(msg, 81, "$J=G91 F%d %c%.3f", feed, AXIS[axis], dist);
-        return scheduleCommand(msg);
+        return scheduleCommand(msg, strlen(msg) );
     }
 
     virtual void begin() {
@@ -208,7 +211,8 @@ public:
     virtual void reset() {
         panic = false;
         cleanupQueue();
-        schedulePriorityCommand(String((char)0x18));
+        char c = 0x18;
+        schedulePriorityCommand(&c, 1);
     }
 
     virtual void receiveResponses();
@@ -238,11 +242,11 @@ private:
 
     //WPos = MPos - WCO
     float ofsX,ofsY,ofsZ;
-    int feed, spindleVal;
+    uint feed, spindleVal;
 
     void parseGrblStatus(char* v);
 
-    bool isCmdRealtime();
+    bool isCmdRealtime(char* data, size_t len);
 
 };
 

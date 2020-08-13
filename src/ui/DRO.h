@@ -61,7 +61,7 @@ public:
             GCodeDevice *dev = GCodeDevice::getDevice();
             if (dev!=nullptr) {
                 dev->requestStatusUpdate();
-                setDirty();
+                //setDirty();
             }
         }
     }

@@ -39,7 +39,7 @@ class Job : public DeviceObserver, public etl::observable<JobObserver, 3> {
 public:
 
     static Job* getJob();
-    static void setJob(Job* job);
+    //static void setJob(Job* job);
 
     ~Job() { if(gcodeFile) gcodeFile.close(); clear_observers(); }
 
@@ -98,7 +98,11 @@ private:
     bool cancelled;
     bool paused;
 
-    void stop() {   running = false; if(gcodeFile) gcodeFile.close();notify_observers(JobStatusEvent{0});   }
+    void stop() {   
+        running = false; 
+        if(gcodeFile) gcodeFile.close();
+        notify_observers(JobStatusEvent{0});   
+    }
     void readNextLine();
     bool scheduleNextCommand(GCodeDevice *dev);
 
