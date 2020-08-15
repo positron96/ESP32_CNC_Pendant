@@ -2,6 +2,8 @@
 
 # Intro 
 
+image:https://img.youtube.com/vi/pOqXPnl2YR0/mqdefault.jpg[link=https://youtu.be/pOqXPnl2YR0]
+
 I have a Creality Ender 3 3D printer and when I need to print anything, I constantly have to pull SD card from the printer, stick it into PC, copy files, pull from PC, stick into printer, wash, rinse, repeat. 
 That operations add add mechanical wear to uSD cards, slots, not to mention they  waste time and take some fun away from 3D printing.
 I've tried Octoprint and a Raspberry Pi connected to a printer, but 1) there is no control over Octoprint without connected PC (and I want autonomous printing) and 2) it boots for almost a minute!
