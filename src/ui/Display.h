@@ -64,12 +64,7 @@ public:
 
     void draw();
 
-    void setScreen(Screen *screen) { 
-        cScreen = screen; 
-        selMenuItem = 0;
-        dirty=true;
-    }
-    
+    void setScreen(Screen *screen) ;    
 
     static Display *getDisplay();
 

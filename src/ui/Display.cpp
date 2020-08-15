@@ -16,12 +16,26 @@ int Display::encVal = 0;
 
     Display* Display::getDisplay() { return inst; }
 
+    void Display::setScreen(Screen *screen) { 
+        if(cScreen != nullptr) cScreen->onHide();
+        cScreen = screen; 
+        if(cScreen != nullptr) cScreen->onShow();
+        selMenuItem = 0;
+        dirty=true;
+    }
+
 
     void Display::loop() {
         processInput();
         if(cScreen!=nullptr) cScreen->loop();
         draw();
     }
+
+    void Display::processInput() {
+        processEnc();
+        processButtons();
+        processPot();
+    } 
 
     void Display::processEnc() {
         static int lastEnc;
@@ -37,9 +51,10 @@ int Display::encVal = 0;
         static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
         if (cScreen == nullptr) return;
         for(int i=0; i<3; i++) {
-            if(lastButtPressed[i] != buttonPressed[i]) {
-                S_DEBUGF("button%d changed: %d\n", i, buttonPressed[i] );
-                if(buttonPressed[i]) {
+            bool p = buttonPressed[i];
+            if(lastButtPressed[i] != p) {
+                S_DEBUGF("button%d changed: %d\n", i, p );
+                if(p) {
                     int menuLen = cScreen->menuItems.size();
                     if(menuLen!=0) {
                         if(i==0) { selMenuItem = selMenuItem>0 ? selMenuItem-1 : menuLen-1;  setDirty(); }
@@ -56,7 +71,7 @@ int Display::encVal = 0;
                         cScreen->onButtonPressed(buttons[i], 1);
                     }
                 }
-                lastButtPressed[i] = buttonPressed[i];
+                lastButtPressed[i] = p;
             }
         }
     }
@@ -72,9 +87,23 @@ int Display::encVal = 0;
         }
     }
 
+    void Display::draw() {
+        if(!dirty) return;
+        u8g2.clearBuffer();
+        if(cScreen!=nullptr) cScreen->drawContents();
+        drawStatusBar();
+        drawMenu();
+
+        char str[15]; sprintf(str, "%lu", millis() ); u8g2.drawStr(20,110, str);
+
+        u8g2.sendBuffer();
+        dirty = false;
+    }
+
     void Display::drawStatusBar() {
 
         u8g2.setFont(u8g2_font_5x8_tr);
+        u8g2.setDrawColor(1);
 
         char c;
         // device status
@@ -90,7 +119,7 @@ int Display::encVal = 0;
         // job status
         Job *job = Job::getJob();
         char str[20];
-        if(job->isRunning() ) {
+        if(job->isValid() ) {
             float p = job->getCompletion()*100;
             if(p<10) snprintf(str, 20, " %.1f%%", p );
             else snprintf(str, 20, " %d%%", (int)p );
@@ -119,13 +148,14 @@ int Display::encVal = 0;
     void Display::drawMenu() {
         if(cScreen==nullptr) return;
         u8g2.setFont(u8g2_font_5x8_tr);
+        u8g2.setDrawColor(2);
         
         int len = cScreen->menuItems.size();
 
         int onscreenLen = len<6 ? len : 6;
         const int w=10;
         int y = u8g2.getHeight()-w;        
-        u8g2.setFontMode(2);
+        
         for(int i=0; i<onscreenLen; i++) {
             if(selMenuItem == i) {
                 u8g2.drawBox(i*w, y, w, w);    
@@ -140,21 +170,3 @@ int Display::encVal = 0;
     }
     
 
-    void Display::draw() {
-        if(!dirty) return;
-        u8g2.clearBuffer();
-        if(cScreen!=nullptr) cScreen->drawContents();
-        drawStatusBar();
-        drawMenu();
-
-        char str[15]; sprintf(str, "%lu", millis() ); u8g2.drawStr(20,110, str);
-
-        u8g2.sendBuffer();
-        dirty = false;
-    }
-
-    void Display::processInput() {
-        processEnc();
-        processButtons();
-        processPot();
-    } 

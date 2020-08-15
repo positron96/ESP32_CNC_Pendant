@@ -41,6 +41,9 @@ protected:
 
     //virtual void onMenuItemSelected(MenuItem & item) {};
 
+    virtual void onShow() {};
+    virtual void onHide() {};
+
 private:
 
     friend class Display;

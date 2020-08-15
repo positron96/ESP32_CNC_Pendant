@@ -18,33 +18,11 @@ enum class JogDist {
 };
 
 
-char axisChar(const JogAxis &a) {
-    switch(a) {
-        case JogAxis::X : return 'X';
-        case JogAxis::Y : return 'Y';
-        case JogAxis::Z : return 'Z';
-    }
-    log_printf("Unknown axis\n");
-    return 0;
-}
-
-
-float distVal(const JogDist &a) {
-    switch(a) {
-        case JogDist::_01: return 0.1;
-        case JogDist::_1: return 1;
-        case JogDist::_10: return 10;
-    }
-    log_printf("Unknown multiplier\n");
-    return 1;
-}
-
-
 
 class DRO: public Screen {
 public:
 
-    DRO() {}
+    DRO(): nextRefresh(1) {}
     
     void begin() override {
         /*
@@ -56,7 +34,7 @@ public:
 
     void loop() override {
         Screen::loop();
-        if(millis()>nextRefresh) {
+        if(nextRefresh!=0 && millis()>nextRefresh) {
             nextRefresh = millis() + 500;
             GCodeDevice *dev = GCodeDevice::getDevice();
             if (dev!=nullptr) {
@@ -65,6 +43,9 @@ public:
             }
         }
     }
+
+    void enableRefresh(bool r) { nextRefresh = r?millis() : 0;  }
+    bool isRefreshEnabled() { return nextRefresh!=0; }
 
 /*
     void config(JsonObjectConst cfg) {
@@ -108,6 +89,28 @@ protected:
     JogDist cDist;
     uint32_t nextRefresh;
     uint32_t lastJog;
+
+    
+    static char axisChar(const JogAxis &a) {
+        switch(a) {
+            case JogAxis::X : return 'X';
+            case JogAxis::Y : return 'Y';
+            case JogAxis::Z : return 'Z';
+        }
+        log_printf("Unknown axis\n");
+        return 0;
+    }
+
+
+    static float distVal(const JogDist &a) {
+        switch(a) {
+            case JogDist::_01: return 0.1;
+            case JogDist::_1: return 1;
+            case JogDist::_10: return 10;
+        }
+        log_printf("Unknown multiplier\n");
+        return 1;
+    }
 
     void drawAxis(char axis, float v, int y) {
         const int LEN=20;
@@ -225,6 +228,7 @@ protected:
         switch(bt) {
             case Button::ENC_UP:
             case Button::ENC_DOWN: {
+                if(! dev->canJog() ) return;
                 float f=0;
                 float d = distVal(cDist)*arg;
                 if( lastJog!=0) { f = d / (millis()-lastJog) * 1000*60; };
