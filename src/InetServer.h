@@ -2,9 +2,11 @@
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>  
+#include <AsyncTCP.h>
 #include <ArduinoJson.h>   // for implementing a subset of the OctoPrint API
 
 #include <etl/observer.h>
+#include <etl/set.h>
 
 struct WebServerStatusEvent { int statusField; };
 
@@ -12,7 +14,7 @@ typedef etl::observer<const WebServerStatusEvent&> WebServerObserver;
 
 class WebServer : public etl::observable<WebServerObserver, 3> {
 public:
-    WebServer(uint16_t port=80): server(port) , port(port) {
+    WebServer(uint16_t port=80): server(port), telnetServer(23), port(port) {
         inst = this;
     }
 
@@ -30,11 +32,14 @@ public:
 
     bool isRunning() { return running; }
 
+    void resendDeviceResponse(const char*, size_t);
+
 private:
 
     static WebServer * inst;
 
     AsyncWebServer server;
+    AsyncServer telnetServer;
     String essid, password;
     uint16_t port;
     String hostname;
@@ -44,6 +49,8 @@ private:
     //String localUrlBase;
     bool downloading;
     bool running;
+
+    etl::set<AsyncClient*, 5> telnetClients;
     
     void registerOptoPrintApi() ;
     

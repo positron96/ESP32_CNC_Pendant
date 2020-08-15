@@ -129,12 +129,14 @@ void setup() {
 
     fileChooser.begin();
     fileChooser.setCallback( [&](bool res, String path){
-        if(res) { 
+        if(res) {
+            DEBUGF("Starting job %s\n", path.c_str() );
             job->setFile(path);            
-            job->resume();
+            job->start();
             
-            cMode = Mode::DRO;
-            dev->enableStatusUpdates();
+            Display::getDisplay()->setScreen(dro); // select file
+        } else {
+            Display::getDisplay()->setScreen(dro); // cancel
         }
     } );
 
@@ -157,6 +159,7 @@ void deviceLoop(void* pvParams) {
     dev->add_observer(display);
     //dev->add_observer(dro);  // dro.setDevice(dev);
     //dev->add_observer(fileChooser);
+    dev->addReceivedLineHandler( [](const char* d, size_t l) {server.resendDeviceResponse(d,l);} );
     dev->begin();
 
     if(dev->getType() == "grbl") {

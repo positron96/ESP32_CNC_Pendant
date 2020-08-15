@@ -13,6 +13,8 @@
 
 WebServer* WebServer::inst = nullptr;
 
+extern HardwareSerial PrinterSerial; // dirty hack
+
 void WebServer::config(JsonObjectConst cfg ) {
 
     essid = cfg.containsKey("essid") ? cfg["essid"].as<String>() : "WiFi";
@@ -55,6 +57,27 @@ void WebServer::begin() {
     registerWebBrowser();
 
     server.begin();
+
+
+    telnetServer.onClient( [this](void* arg, AsyncClient *cli) {
+        Serial.print("telnetServer.onClient "); cli->remoteIP().printTo(Serial);Serial.println("");
+        telnetClients.insert(cli);
+        cli->onData( [](void* arg, AsyncClient* client, void *data, size_t len) {
+            char t[50]; memcpy(t, data, min(len,size_t(49)) ); t[min(size_t(49),len)]=0;
+            Serial.printf("telnetServer onData: %s\n", t);
+            GCodeDevice *dev = GCodeDevice::getDevice();
+            if(dev==nullptr) return;
+            PrinterSerial.write((uint8_t*)data, len);
+        } );
+        cli->onTimeout( [](void* t, AsyncClient* cli_, uint32_t tm) { Serial.print("telnetServer onTimeout "); cli_->remoteIP().printTo(Serial); Serial.println("");}  );
+        cli->onError( [](void* t, AsyncClient* cli_, uint16_t e) { Serial.print("telnetServer onError "); cli_->remoteIP().printTo(Serial); Serial.println("");}  );
+        cli->onDisconnect( [this](void* t, AsyncClient* cli_) { 
+            Serial.print("telnetServer onDisconnect "); cli_->remoteIP().printTo(Serial); Serial.println("");
+            telnetClients.erase(cli_); 
+        } );
+    }, nullptr );
+    telnetServer.begin();
+
     running = true;
     notify_observers( WebServerStatusEvent{0} );
 
@@ -63,8 +86,19 @@ void WebServer::begin() {
 void WebServer::stop() {
     if(running) {
         server.end();
+        telnetServer.end();
         running = false;
         notify_observers( WebServerStatusEvent{0} );
+    }
+}
+
+void WebServer::resendDeviceResponse(const char* data, size_t len) {
+    constexpr char crlf[]="\n\r";
+    for(const auto &cli: telnetClients) {
+        if(cli->canSend() ) {
+            cli->write(data, len);
+            cli->write(crlf, strlen(crlf) );
+        } else Serial.printf("WebServer::resendDeviceResponse:  cannot send\n");
     }
 }
 
