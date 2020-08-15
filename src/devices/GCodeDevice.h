@@ -19,8 +19,9 @@
 
 const int MAX_DEVICE_OBSERVERS = 3;
 struct DeviceStatusEvent { int statusField; };
-typedef etl::observer<const DeviceStatusEvent&> DeviceObserver;
+using DeviceObserver = etl::observer<const DeviceStatusEvent&> ;
 
+using ReceivedLineHandler = std::function< void(const char* str, size_t len) >;
 
 class GCodeDevice : public etl::observable<DeviceObserver, MAX_DEVICE_OBSERVERS> {
 public:
@@ -55,7 +56,7 @@ public:
         return xMessageBufferSend(buf1, cmd, len, 0) != 0;
     };
     virtual bool schedulePriorityCommand(String cmd) { 
-        schedulePriorityCommand(cmd.c_str(), cmd.length() );
+        return schedulePriorityCommand(cmd.c_str(), cmd.length() );
     };
     virtual bool schedulePriorityCommand( const char* cmd, size_t len) {
         if(panic) return false;
@@ -72,6 +73,8 @@ public:
 
     virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
 
+    virtual bool canJog() { return true; }
+
     virtual void loop() {
         sendCommands();
         receiveResponses();
@@ -83,7 +86,7 @@ public:
         }
     }
     virtual void sendCommands();
-    virtual void receiveResponses() = 0;
+    virtual void receiveResponses();
 
     float getX() { return x; }
     float getY() { return y; }
@@ -115,6 +118,8 @@ public:
 
     virtual void requestStatusUpdate() = 0;
 
+    void addReceivedLineHandler( ReceivedLineHandler h) { receivedLineHandlers.push_back(h); }
+
 protected:
     Stream * printerSerial;
 
@@ -136,7 +141,7 @@ protected:
     MessageBufferHandle_t  buf1;
 
     bool xoff;
-    bool xoffEnabled = true;
+    bool xoffEnabled = false;
 
     Counter * sentCounter;
 
@@ -175,9 +180,12 @@ protected:
 
     virtual void trySendCommand() = 0;
 
+    virtual void tryParseResponse( char* cmd, size_t len ) = 0;
+
 private:
     static GCodeDevice *inst;
 
+    etl::vector<ReceivedLineHandler, 3> receivedLineHandlers;
     //friend void loop();
 
 };
@@ -196,11 +204,9 @@ public:
 
     virtual ~GrblDevice() {}
 
-    virtual bool jog(uint8_t axis, float dist, int feed) override {
-        constexpr static char AXIS[] = {'X', 'Y', 'Z'};
-        char msg[81]; snprintf(msg, 81, "$J=G91 F%d %c%.3f", feed, AXIS[axis], dist);
-        return scheduleCommand(msg, strlen(msg) );
-    }
+    bool jog(uint8_t axis, float dist, int feed) override;
+
+    bool canJog() override;
 
     virtual void begin() {
         GCodeDevice::begin();
@@ -214,8 +220,6 @@ public:
         char c = 0x18;
         schedulePriorityCommand(&c, 1);
     }
-
-    virtual void receiveResponses();
 
     virtual void requestStatusUpdate() override {        
         schedulePriorityCommand("?");
@@ -231,6 +235,8 @@ public:
 
 protected:
     void trySendCommand() override;
+
+    void tryParseResponse( char* cmd, size_t len ) override;
     
 private:
     
@@ -290,7 +296,7 @@ public:
         //schedulePriorityCommand("M999");
     }
 
-    virtual void receiveResponses() ;
+    //virtual void receiveResponses() ;
 
     void requestStatusUpdate() override {
         schedulePriorityCommand("M114"); // temp
@@ -309,6 +315,8 @@ public:
 protected:
 
     void trySendCommand() override;
+
+    void tryParseResponse( char* cmd, size_t len ) override;
 
 private:
 

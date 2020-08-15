@@ -170,6 +170,31 @@ void GCodeDevice::sendCommands() {
 }
 
 
+void GCodeDevice::receiveResponses() {
+
+
+    static const size_t MAX_LINE = 200; // M115 is far longer than 100
+    static char resp[MAX_LINE+1];
+    static size_t respLen;
+
+    while (printerSerial->available()) {
+        char ch = (char)printerSerial->read();
+        switch(ch) {
+            case '\n':
+            case '\r': break;
+            case XOFF: if(xoffEnabled) { xoff=true; break; }
+            case XON: if(xoffEnabled) {xoff=false; break; }
+            default: if(respLen<MAX_LINE) resp[respLen++] = ch;
+        }
+        if(ch=='\n') {
+            resp[respLen]=0;
+            for(const auto &r: receivedLineHandlers) if(r) r(resp, respLen);
+            tryParseResponse(resp, respLen);
+            respLen = 0;
+        }
+    }
+    
+}
 
 
 
@@ -200,95 +225,72 @@ void MarlinDevice::trySendCommand() {
     }
 }
 
-void MarlinDevice::receiveResponses() {
+void MarlinDevice::tryParseResponse( char* resp, size_t len ) {
 
-    //static int lineStartPos = 0;
-    //static String resp;
-    static const size_t MAX_LINE = 200; // M115 is far longer than 100
-    static char resp[MAX_LINE+1];
-    static size_t respLen;
-    char responseDetail[MAX_LINE];
+    char tmp = 0;
+    char* curCmd;
+    size_t curCmdLen = sentQueue.peek(curCmd);
+    if(curCmdLen==0) curCmd = &tmp;
 
-    while (printerSerial->available()) {
-        char ch = (char)printerSerial->read();
-        switch(ch) {
-            case '\n':
-            case '\r': break;
-            case XOFF: xoff=true; break;
-            case XON: xoff=false; break;
-            default: if(respLen<MAX_LINE) resp[respLen++] = ch;
+    //GD_DEBUGF(" > '%s'; current cmd %s\n", resp, curCmd );
+
+    if ( startsWith(resp, "ok") ) {
+
+        if (startsWith(curCmd, TEMP_COMMAND))
+            parseTemperatures(String(resp) );
+        else if (fwAutoreportTempCap && startsWith(curCmd, AUTOTEMP_COMMAND))
+            autoreportTempEnabled = (curCmd[6] != '0');
+        else if(startsWith(curCmd, "G0") || startsWith(curCmd, "G1")) {
+            parseG0G1(curCmd); // artificial position from G0/G1 command
         }
-        if(ch=='\n') {
-            resp[respLen]=0;
+        
+        //sentQueue.markAcknowledged();     // Go on with next command
+        sentQueue.pop();
+        
+        //curCmdLen = 0; // need to fetch another sent command from queue
 
-            char tmp = 0;
-            char* curCmd;
-            size_t curCmdLen = sentQueue.peek(curCmd);
-            if(curCmdLen==0) curCmd = &tmp;
-
-            //GD_DEBUGF(" > '%s'; current cmd %s\n", resp, curCmd );
-
-            if ( startsWith(resp, "ok") ) {
-
-                if (startsWith(curCmd, TEMP_COMMAND))
-                    parseTemperatures(String(resp) );
-                else if (fwAutoreportTempCap && startsWith(curCmd, AUTOTEMP_COMMAND))
-                    autoreportTempEnabled = (curCmd[6] != '0');
-                else if(startsWith(curCmd, "G0") || startsWith(curCmd, "G1")) {
-                    parseG0G1(curCmd); // artificial position from G0/G1 command
-                }
-                
-                snprintf(responseDetail, MAX_LINE, "ACK");
-                //sentQueue.markAcknowledged();     // Go on with next command
-                sentQueue.pop();
-                
-                //curCmdLen = 0; // need to fetch another sent command from queue
-
-                connected = true;
-            } else {
-                if (connected) {
-                    if(startsWith(curCmd,"M115") ) {
-                        parseM115(String(resp) ); sprintf(responseDetail, "status");
-                    } else if (parseTemperatures(String(resp) ) )
-                        sprintf(responseDetail, "autotemp");
-                    else if (parsePosition(resp) )
-                        sprintf(responseDetail, "position");
-                    /*else if (startsWith(resp, "Resend: ")) {
-                        nline = (int)extractFloat(resp, "Resend:");
-                        sprintf(responseDetail, "sync line=%d", nline);
-                    }*/
-                    else if (startsWith(resp, "echo: cold extrusion prevented")) {
-                        // To do: Pause sending gcode, or do something similar
-                        sprintf(responseDetail, "cold extrusion");
-                        
-                        notify_observers(DeviceStatusEvent{1}); 
-                    }
-                    else if (startsWith(resp, "Error:") ) {
-                        sprintf(responseDetail, "ERROR");
-
-                        cleanupQueue();
-                        panic = true;
-
-                        
-                        notify_observers(DeviceStatusEvent{1}); 
-                    }
-                    else {
-                        //incompleteResponse = true;
-                        sprintf(responseDetail, "incomplete");
-                    }
-                } else {
-                    //incompleteResponse = true;
-                    sprintf(responseDetail, "discovering");
-                }
+        connected = true;
+    } else {
+        if (connected) {
+            if(startsWith(curCmd,"M115") ) {
+                parseM115(String(resp) ); 
+            } else if (parseTemperatures(String(resp) ) ) {
+                // do nothing
+                //sprintf(responseDetail, "autotemp");
+            } else if (parsePosition(resp) ) {
+                // do nothing
+                //sprintf(responseDetail, "position");
+            /*} else if (startsWith(resp, "Resend: ")) {
+                nline = (int)extractFloat(resp, "Resend:");
+                sprintf(responseDetail, "sync line=%d", nline);
+            }*/
+            } else if (startsWith(resp, "echo: cold extrusion prevented")) {
+                // To do: Pause sending gcode, or do something similar
+                lastReceivedResponse = "cold extrusion prevented";
+                notify_observers(DeviceStatusEvent{1}); 
             }
+            else if (startsWith(resp, "Error:") ) {
+                lastReceivedResponse = resp;
 
-            GD_DEBUGF(" > (f%3d,%3d) '%s' current cmd '%s', desc:'%s'\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), 
-                resp, curCmd, responseDetail );
-            //GD_DEBUGF("   free slots: %d type:'%s' \n", sentQueue.getFreeLines(),  responseDetail  );
-            updateRxTimeout( sentQueue.size()>0 );
-            respLen = 0;
+                cleanupQueue();
+                panic = true;
+
+                
+                notify_observers(DeviceStatusEvent{1}); 
+            } else {
+                //incompleteResponse = true;
+            }
+        } else {
+            //incompleteResponse = true;
+            lastReceivedResponse = "discovering";
         }
     }
+
+    GD_DEBUGF(" > (f%3d,%3d) '%s' current cmd '%s'\n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(), 
+        resp, curCmd );
+    //GD_DEBUGF("   free slots: %d type:'%s' \n", sentQueue.getFreeLines(),  responseDetail  );
+    updateRxTimeout( sentQueue.size()>0 );
+        
 
 };
 
