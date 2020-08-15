@@ -36,6 +36,8 @@ bool Job::scheduleNextCommand(GCodeDevice *dev) {
         cancel();
         return false;
     }
+
+    if(paused) return false;
     
     if(curLinePos==0) {
         readNextLine();

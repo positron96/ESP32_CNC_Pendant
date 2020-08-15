@@ -24,13 +24,13 @@ typedef etl::observer<JobStatusEvent> JobObserver;
  *    v                            |
  *   valid ------------------------+
  *    |                            | 
- *    | (.start)                   | (ancel)
- *    v                            | EOF
- *   running ----------------------+
- *    |              ^             |
- *    | (.pause)     | (.resume)   |
- *    v              |             |
- *   running&paused -+-------------+
+ *    | (.start)                   | (.cancel)
+ *    v                            | or EOF
+ *   [ valid&running        ]----->^<----+
+ *    |                     ^            |
+ *    | (.pause)            | (.resume)  |
+ *    v                     |            |
+ *   [valid&running&paused]-+------------+
  *    
  * ```
  */
@@ -52,9 +52,12 @@ public:
         if(gcodeFile) fileSize = gcodeFile.size();
         filePos = 0;
         running = false; 
+        paused = false;
         cancelled = false;
         notify_observers(JobStatusEvent{0}); 
         curLineNum = 0;
+        startTime=0;
+        endTime=0;
     }
 
     void notification(const DeviceStatusEvent& e) override {
@@ -64,13 +67,13 @@ public:
         }
     }
 
-    void start() { startTime = millis();  running = true;  notify_observers(JobStatusEvent{0}); }
+    void start() { startTime = millis(); paused=false; running=true;  notify_observers(JobStatusEvent{0}); }
     void cancel() { cancelled=true; stop(); notify_observers(JobStatusEvent{0});  }
     bool isRunning() {  return running; }
     bool isCancelled() { return cancelled; }
 
-    void pause() { paused = false;notify_observers(JobStatusEvent{0});  }
-    void resume() { paused = true;notify_observers(JobStatusEvent{0});  }
+    void pause() { setPaused(true);  }
+    void resume() { setPaused(false); }
     void setPaused(bool v) { paused = v; notify_observers(JobStatusEvent{0}); }
     bool isPaused() { return paused; }
 
@@ -79,7 +82,7 @@ public:
     size_t getFileSize() { if(isValid()) return fileSize; else return 0;}
     bool isValid() { return (bool)gcodeFile; }
     String getFilename() { if(isValid()) return gcodeFile.name(); else return ""; }
-    uint32_t getPrintDuration() { return millis()-startTime; }
+    uint32_t getPrintDuration() { return (endTime!=0 ? endTime : millis())-startTime; }
 
 private:
 
@@ -87,6 +90,7 @@ private:
     uint32_t fileSize;
     uint32_t filePos;
     uint32_t startTime;
+    uint32_t endTime;
     static const int MAX_LINE = 100;
     char curLine[MAX_LINE+1];
     size_t curLinePos;
@@ -99,9 +103,11 @@ private:
     bool paused;
 
     void stop() {   
+        paused = false;
         running = false; 
+        endTime=millis();
         if(gcodeFile) gcodeFile.close();
-        notify_observers(JobStatusEvent{0});   
+        notify_observers(JobStatusEvent{0}); 
     }
     void readNextLine();
     bool scheduleNextCommand(GCodeDevice *dev);
