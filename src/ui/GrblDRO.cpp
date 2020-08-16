@@ -22,7 +22,7 @@ extern FileChooser fileChooser;
             setDirty(true);
         }) );
 
-        menuItems.push_back( MenuItem::simpleItem(3, 'H', [](MenuItem&){  GCodeDevice::getDevice()->scheduleCommand("$H"); }) );
+        menuItems.push_back( MenuItem::simpleItem(3, 'H', [](MenuItem&){  GCodeDevice::getDevice()->schedulePriorityCommand("$H"); }) );
         menuItems.push_back( MenuItem::simpleItem(4, 'w', [](MenuItem&){  GCodeDevice::getDevice()->scheduleCommand("G10 L20 P1 X0Y0Z0"); GCodeDevice::getDevice()->scheduleCommand("G54"); }) );
         menuItems.push_back(MenuItem{5, 'L', true, false, nullptr,
           [](MenuItem&){  GCodeDevice::getDevice()->scheduleCommand("M3 S1"); },
@@ -74,6 +74,6 @@ extern FileChooser fileChooser;
         
         float m = distVal(cDist);
         snprintf(str, LEN, m<1 ? "%c x%.1f %s" : "%c x%.0f %s", axisChar(cAxis), m, dev->getStatus().c_str() );
-        u8g2.drawStr(0, y, str);
+        u8g2.drawStr(0, y, str);  
                 
     };
