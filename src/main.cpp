@@ -190,23 +190,9 @@ void loop() {
 
     job->loop();
 
-    
     display.loop();
-    display.draw();
 
     if(dev==nullptr) return;
-
-    /*
-    static uint32_t nextSent;
-    static size_t lv1,lv2;
-    if(nextSent < millis()) {
-        size_t v1 = dev->getQueueLength(), v2 = dev->getSentQueueLength();
-        if(v1!=lv1 || v2!=lv2)
-            DEBUGF("queue: %d, sent: %d\n", v1, v2 );
-        lv1=v1; lv2=v2;
-        nextSent = millis()+100;
-    }
-    */
 
     static String s;
     while(Serial.available()!=0) {
@@ -223,17 +209,21 @@ void loop() {
 
 
 IRAM_ATTR void encISR() {
-    static int last1=0;
+    static int lastV1=0;
+    static unsigned int lastISRTime = millis();
+    if(millis()<lastISRTime+2) return;
 
     int v1 = digitalRead(PIN_ENC1);
     int v2 = digitalRead(PIN_ENC2);
-    if(v1==HIGH && last1==LOW) {
+    if(v1==HIGH && lastV1==LOW) {
         if(v2==HIGH) Display::encVal++; else Display::encVal--;
     }
-    if(v1==LOW && last1==HIGH) {
+    if(v1==LOW && lastV1==HIGH) {
         if(v2==LOW) Display::encVal++; else Display::encVal--;
     }
-    last1 = v1;
+    //log_printf("%d, %d\n", v1,v2);
+    //log_printf("%d, %d,  %3d\n", v1,v2,Display::encVal);
+    lastV1 = v1;
 }
 
 
