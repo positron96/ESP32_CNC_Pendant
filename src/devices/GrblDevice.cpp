@@ -69,14 +69,14 @@
             panic = true;
             GD_DEBUGF("ERR '%s'\n", resp ); 
             notify_observers(DeviceStatusEvent{1}); 
-            lastReceivedResponse = resp;
+            lastResponse = resp;
         } else
         if ( startsWith(resp, "<") ) {
             parseGrblStatus(resp+1);
         } else 
         if(startsWith(resp, "[MSG:")) {
             GD_DEBUGF("Msg '%s'\n", resp ); 
-            lastReceivedResponse = resp;
+            lastResponse = resp;
         }        
         
         GD_DEBUGF(" > (f%3d,%3d) '%s' \n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(),resp );

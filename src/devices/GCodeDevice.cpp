@@ -266,11 +266,11 @@ void MarlinDevice::tryParseResponse( char* resp, size_t len ) {
             }*/
             } else if (startsWith(resp, "echo: cold extrusion prevented")) {
                 // To do: Pause sending gcode, or do something similar
-                lastReceivedResponse = "cold extrusion prevented";
+                lastResponse = "cold extrusion prevented";
                 notify_observers(DeviceStatusEvent{1}); 
             }
             else if (startsWith(resp, "Error:") ) {
-                lastReceivedResponse = resp;
+                lastResponse = resp;
 
                 cleanupQueue();
                 panic = true;
@@ -282,7 +282,7 @@ void MarlinDevice::tryParseResponse( char* resp, size_t len ) {
             }
         } else {
             //incompleteResponse = true;
-            lastReceivedResponse = "discovering";
+            lastResponse = "discovering";
         }
     }
 

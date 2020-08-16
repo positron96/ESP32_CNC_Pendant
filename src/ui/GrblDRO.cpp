@@ -73,7 +73,9 @@ extern FileChooser fileChooser;
         u8g2.drawStr(0, y, str);  y+=7;
         
         float m = distVal(cDist);
-        snprintf(str, LEN, m<1 ? "%c x%.1f %s" : "%c x%.0f %s", axisChar(cAxis), m, dev->getStatus().c_str() );
+        const char* stat = dev->isInPanic() ? dev->getLastResponse().c_str() : dev->getStatus().c_str();
+        
+        snprintf(str, LEN, m<1 ? "%c x%.1f %s" : "%c x%.0f %s", axisChar(cAxis), m, stat );
         u8g2.drawStr(0, y, str);  
                 
     };

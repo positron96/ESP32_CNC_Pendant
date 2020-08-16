@@ -8,8 +8,8 @@
 
 //#define ADD_LINECOMMENTS
 
-#define GD_DEBUGF(...) { Serial.printf(__VA_ARGS__); }
-#define GD_DEBUGS(s)  { Serial.println(s); }
+#define GD_DEBUGF(...) // { Serial.printf(__VA_ARGS__); }
+#define GD_DEBUGS(s)   // { Serial.println(s); }
 #define GD_DEBUGLN GD_DEBUGS
 
 #define KEEPALIVE_INTERVAL 5000    // Marlin defaults to 2 seconds, get a little of margin
@@ -232,6 +232,7 @@ public:
     uint getSpindleVal() { return spindleVal; }
     uint getFeed() { return feed; }
     String & getStatus() { return status; }
+    String & getLastResponse() { return lastResponse; }
 
 protected:
     void trySendCommand() override;
@@ -242,7 +243,7 @@ private:
     
     SimpleCounter<15,128> sentQueue;
     
-    String lastReceivedResponse;
+    String lastResponse;
 
     String status;
 
@@ -333,7 +334,7 @@ private:
 
     Temperature toolTemperatures[MAX_SUPPORTED_EXTRUDERS];
     Temperature bedTemperature;
-    String lastReceivedResponse;
+    String lastResponse;
     float ePos; ///< extruder pos
 
     bool parseTemperatures(const String &response);
