@@ -59,7 +59,7 @@ public:
         return schedulePriorityCommand(cmd.c_str(), cmd.length() );
     };
     virtual bool schedulePriorityCommand( const char* cmd, size_t len) {
-        if(panic) return false;
+        //if(panic) return false;
         if(!buf0) return false;
         if(len==0) return false;
         return xMessageBufferSend(buf0, cmd, len, 0) != 0;
