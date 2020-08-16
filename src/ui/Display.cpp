@@ -31,21 +31,6 @@ int Display::encVal = 0;
         draw();
     }
 
-    void Display::processInput() {
-        processEnc();
-        processButtons();
-        processPot();
-    } 
-
-    void Display::processEnc() {
-        static int lastEnc;
-        if(encVal != lastEnc) {
-            int8_t dx = (encVal - lastEnc);
-            if(cScreen!=nullptr) cScreen->onButtonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP, dx);
-        }
-        lastEnc = encVal;
-    }
-
     constexpr int VISIBLE_MENUS = 6;
 
     void Display::ensureSelMenuVisible() {
@@ -56,6 +41,22 @@ int Display::encVal = 0;
         if(selMenuItem < cScreen->firstDisplayedMenuItem) {
             cScreen->firstDisplayedMenuItem = selMenuItem;
         }
+    }
+
+    void Display::processInput() {
+        processEnc();
+        processButtons();
+        processPot();
+    } 
+
+    void Display::processEnc() {
+        static int lastEnc;
+        int v = encVal;
+        if(lastEnc != v) {
+            int8_t dx = (v - lastEnc);
+            if(cScreen!=nullptr) cScreen->onButtonPressed(dx>0 ? Button::ENC_DOWN : Button::ENC_UP, dx);
+        }
+        lastEnc = v;
     }
 
     void Display::processButtons() {
@@ -92,9 +93,10 @@ int Display::encVal = 0;
         static int lastPotVal[2] = {0,0};
         
         for(int i=0; i<2; i++) {
-            if(lastPotVal[i] != potVal[i]) {
-                if(cScreen!=nullptr) cScreen->onPotValueChanged(i, potVal[i]);
-                lastPotVal[i] = potVal[i];
+            int v = potVal[i];
+            if(lastPotVal[i] != v) {
+                if(cScreen!=nullptr) cScreen->onPotValueChanged(i, v);
+                lastPotVal[i] = v;
             }
         }
     }
@@ -106,7 +108,9 @@ int Display::encVal = 0;
         drawStatusBar();
         drawMenu();
 
-        char str[15]; sprintf(str, "%lu", millis() ); u8g2.drawStr(20,110, str);
+        //char str[15]; sprintf(str, "%lu", millis() ); u8g2.drawStr(20,110, str);
+        //char str[15]; sprintf(str, "%4d %4d", potVal[0], potVal[1] ); u8g2.drawStr(5,110, str);
+        char str[15]; sprintf(str, "%d", encVal ); u8g2.drawStr(5,110, str);
 
         u8g2.sendBuffer();
         dirty = false;
