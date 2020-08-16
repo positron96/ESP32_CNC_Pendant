@@ -37,7 +37,7 @@
 
         if(isCmdRealtime(curUnsentPriorityCmd, curUnsentPriorityCmdLen) ) {
             printerSerial->write(curUnsentPriorityCmd, curUnsentPriorityCmdLen);  
-            //GD_DEBUGF("<  (f%3d,%3d) '%c' RT\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentPriorityCmd[0] );
+            GD_DEBUGF("<  (f%3d,%3d) '%c' RT\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), curUnsentPriorityCmd[0] );
             curUnsentPriorityCmdLen = 0;
             return;
         }
@@ -49,7 +49,7 @@
             sentCounter->push( cmd, *len );
             printerSerial->write(cmd, *len);  
             printerSerial->print('\n');
-            //GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), cmd, *len );
+            GD_DEBUGF("<  (f%3d,%3d) '%s' (%d)\n", sentCounter->getFreeLines(), sentCounter->getFreeBytes(), cmd, *len );
             *len = 0;
         } else {
             //if(loadedNewCmd) GD_DEBUGF("<  Not sent, free lines: %d, free space: %d\n", sentQueue.getFreeLines() , sentQueue.getFreeBytes()  );
@@ -79,7 +79,7 @@
             lastReceivedResponse = resp;
         }        
         
-        //GD_DEBUGF(" > (f%3d,%3d) '%s' \n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(),resp );
+        GD_DEBUGF(" > (f%3d,%3d) '%s' \n", sentQueue.getFreeLines(), sentQueue.getFreeBytes(),resp );
     }
 
     void mystrcpy(char* dst, const char* start, const char* end) {
@@ -93,10 +93,11 @@
         //<Idle|MPos:9.800,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000>
         //<Idle|MPos:9.800,0.000,0.000|FS:0,0|Ov:100,100,100>
         //GD_DEBUGF("parsing %s\n", v.c_str() );
+        
         char buf[10];
         bool mpos;
-        char cpy[70];
-        strcpy(cpy, v);
+        char cpy[100];
+        strncpy(cpy, v, 100);
         v=cpy;
 
         // idle/jogging
