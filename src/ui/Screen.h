@@ -21,6 +21,8 @@
 class Screen {
 public:
 
+    Screen() : firstDisplayedMenuItem(0) {}
+
     void setDirty(bool fdirty=true) { Display::getDisplay()->setDirty(fdirty); }
 
     virtual void begin() { setDirty(true); }
@@ -45,6 +47,8 @@ protected:
     virtual void onHide() {};
 
 private:
+
+    int firstDisplayedMenuItem;
 
     friend class Display;
 

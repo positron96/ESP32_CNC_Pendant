@@ -88,4 +88,6 @@ private:
     void drawStatusBar();
     void drawMenu() ;
 
+    void ensureSelMenuVisible();
+
 };

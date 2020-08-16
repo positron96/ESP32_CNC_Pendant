@@ -46,20 +46,32 @@ int Display::encVal = 0;
         lastEnc = encVal;
     }
 
+    constexpr int VISIBLE_MENUS = 6;
+
+    void Display::ensureSelMenuVisible() {
+
+        if(selMenuItem >= cScreen->firstDisplayedMenuItem+VISIBLE_MENUS)
+           cScreen->firstDisplayedMenuItem = selMenuItem - VISIBLE_MENUS + 1;
+
+        if(selMenuItem < cScreen->firstDisplayedMenuItem) {
+            cScreen->firstDisplayedMenuItem = selMenuItem;
+        }
+    }
+
     void Display::processButtons() {
         static bool lastButtPressed[3];
         static const Button buttons[] = {Button::BT1, Button::BT2, Button::BT3};
         if (cScreen == nullptr) return;
-        for(int i=0; i<3; i++) {
-            bool p = buttonPressed[i];
-            if(lastButtPressed[i] != p) {
-                S_DEBUGF("button%d changed: %d\n", i, p );
+        for(int bt=0; bt<3; bt++) {
+            bool p = buttonPressed[bt];
+            if(lastButtPressed[bt] != p) {
+                S_DEBUGF("button%d changed: %d\n", bt, p );
                 if(p) {
                     int menuLen = cScreen->menuItems.size();
                     if(menuLen!=0) {
-                        if(i==0) { selMenuItem = selMenuItem>0 ? selMenuItem-1 : menuLen-1;  setDirty(); }
-                        if(i==2) { selMenuItem = (selMenuItem+1) % menuLen; setDirty(); }
-                        if(i==1) {
+                        if(bt==0) { selMenuItem = selMenuItem>0 ? selMenuItem-1 : menuLen-1; ensureSelMenuVisible(); setDirty(); }
+                        if(bt==2) { selMenuItem = (selMenuItem+1) % menuLen; ensureSelMenuVisible(); setDirty(); }
+                        if(bt==1) {
                             MenuItem& item = cScreen->menuItems[selMenuItem];
                             if(!item.togglalbe) { item.onCmd(item); }
                             else {
@@ -68,10 +80,10 @@ int Display::encVal = 0;
                         }
                         //cScreen->onMenuItemSelected(cScreen->menuItems[selMenuItem]);                    
                     } else {
-                        cScreen->onButtonPressed(buttons[i], 1);
+                        cScreen->onButtonPressed(buttons[bt], 1);
                     }
                 }
-                lastButtPressed[i] = p;
+                lastButtPressed[bt] = p;
             }
         }
     }
@@ -152,19 +164,21 @@ int Display::encVal = 0;
         
         int len = cScreen->menuItems.size();
 
-        int onscreenLen = len<6 ? len : 6;
+        int onscreenLen = len - cScreen->firstDisplayedMenuItem;
+        if (onscreenLen>VISIBLE_MENUS) onscreenLen=VISIBLE_MENUS;
         const int w=10;
         int y = u8g2.getHeight()-w;        
         
         for(int i=0; i<onscreenLen; i++) {
-            if(selMenuItem == i) {
+            int idx = cScreen->firstDisplayedMenuItem + i;
+            if(selMenuItem == idx) {
                 u8g2.drawBox(i*w, y, w, w);    
             } else {            
                 u8g2.drawFrame(i*w, y, w, w);
             }
-            MenuItem &item = cScreen->menuItems[i];
+            MenuItem &item = cScreen->menuItems[idx];
             uint16_t c = item.glyph;
-            if(item.font!=nullptr) u8g2.setFont(item.font);
+            if(item.font != nullptr) u8g2.setFont(item.font);
             u8g2.drawGlyph(i*w+2, y+1, c);
         }
     }
