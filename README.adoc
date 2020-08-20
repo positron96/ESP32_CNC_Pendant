@@ -2,7 +2,10 @@
 
 # Intro 
 
+Videos:
+
 image:https://img.youtube.com/vi/pOqXPnl2YR0/mqdefault.jpg[link=https://youtu.be/pOqXPnl2YR0]
+image:https://img.youtube.com/vi/225_HLAfdsI/mqdefault.jpg[link=https://www.youtube.com/watch?v=225_HLAfdsI]
 
 I have a Creality Ender 3 3D printer and when I need to print anything, I constantly have to pull SD card from the printer, stick it into PC, copy files, pull from PC, stick into printer, wash, rinse, repeat. 
 That operations add add mechanical wear to uSD cards, slots, not to mention they  waste time and take some fun away from 3D printing.
@@ -53,13 +56,13 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 ** [x] Uploading files to ESP32 from PC
 ** [x] Octoprint interface, works with Cura (3.6).
 ** [x] Rudimentary Web interface to upload, download, start prints.
-** [ ] Direct TCP/IP to UART bridge
+** [x] Direct TCP/IP to UART bridge
 
 * [x] User interace (quick'n'dirty implementation works)
 ** LCD, Jog wheel, buttons, axis selector, multiplier selector
 ** 2 main UI modes:
-*** Jogging and DRO
-*** Printing from a file. Includes a file browser and printing status window a-la Marlin LCD interface.
+*** [ ] Jogging and DRO. Almost finished for Grbl
+*** [x] Printing from a file. Includes a file browser and printing status window a-la Marlin LCD interface.
 
 * [ ] Settings window for connecting to a WiFi network etc.
   This idea might be dropped since entering WiFi password would be a pain.
@@ -93,9 +96,17 @@ image::docs/case-render.png[render of case,640,480]
 
 # Notes
 
-## 27.07
-
-Surprisingly, at 60mm/sec prints Ender-3 does not require increasing of buffer sizes, as reported by many Octoprint users.
-So, this program successfully manages to keep Marlin's buffers busy. 
-Someone elsewould need to test faster prints, but I believe that UART would not be the bottleneck. 
+ * (27.07) Surprisingly, at 60mm/sec prints Ender-3 does not require increasing of buffer sizes, as reported by many Octoprint users.
+Those must be Octoprint issues (since it's python) or they appear only at much higher speeds than my stock 60 mm/s.
+So, this project successfully manages to keep Marlin's buffers busy. 
+Someone else would need to test faster prints, but I believe that UART would not be the bottleneck. 
 I've extracted UART to a separate freeRTOS task, so it's not dependant on other functions (except SD card reading which is done in main loop for now)
+ * (20.08.20) There are 2 conceptual issues that I am yet to find a solution for. 
+ 1. Progress of file printing tracks how many lines of code were read from file, not how much was acknoledged by the device. 
+ There should be a way to notify the sender (Job class) of lines accepted by the device (GCodeDevice class). 
+ The problem is that there could be (and are) many senders of gcode (DRO and TCP bridge alsosend gcode) and GCodeDevice needs to track what line of code comes from where.
+ Some programs (LaserGRBL) overcome this altogether by simply disabling other senders (DRO) while printing is in progress.
+ This should be thought through since live DRO in this project is done via GCodes for marlin (and GRBL realtime commands for GRBL) so they cannot be disabled.
+ 2. TCP passthrough bridge needs to be passed raw to the device. 
+ Waiting for newline does not work with GRBL realtime commands that do not end with newlines.
+ This must somehow bypass the whole sending queue. At the moment, TCP handling code accesses underlying `Serial` object directly, which is not good.
