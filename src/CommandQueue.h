@@ -176,3 +176,96 @@ private:
     etl::queue<size_t, LEN_LINES> queue;
     size_t freeBytes;
 };
+
+
+/*
+class Sender {
+    virtual void messageAcknowledged( const Message & msg ) = 0;
+};*/
+
+constexpr static size_t SENDER_QUEUE_SIZE = 50;
+
+template<class Tag>
+struct Message { 
+    const char* data; 
+    uint8_t len; 
+    Tag * tag;
+};
+
+template<class Tag, size_t SIZE, uint8_t MAX_LINE_LEN=100>
+class MessageQueue {
+
+public:
+    using Message = Message<Tag>;
+
+    MessageQueue() {
+        itemCount = 0;
+        buf = xMessageBufferCreateStatic(SIZE, data, &bufStruct);
+    }
+
+    void clear() {  
+        xMessageBufferReset(buf);  
+        itemCount = 0;
+        bytesCount = 0;
+        havePeekedData = false;
+    }
+
+    bool canPush(const Message &msg) {
+        return canPush(msg.len);
+    }
+    bool canPush(const size_t len) {
+        return len+1 < available() && tags.available()>0;
+    }
+
+    bool push(const Message &msg) {
+        if(tags.available()==0) return false;
+        bool t = xMessageBufferSend(buf, msg.data, msg.len, 0) != 0;
+        if(!t) return false;
+        tags.push(msg.tag);
+        return true;
+    }
+
+    size_t count() { return itemCount; }
+    size_t size()  { return bytesCount; }
+    size_t available() { return SIZE-bytesCount; }
+    bool isEmpty() { return itemCount==0; }
+
+    bool peek(Message &msg) {
+        if(itemCount==0) return false;
+        if(!havePeekedData) loadFromBuffer();
+        msg.data = peekedData;
+        msg.len = peekedLen;
+        msg.tag = tags.front();
+        return true;
+    }
+
+    bool pop() {
+        if(itemCount==0) return false;
+        if(!havePeekedData) loadFromBuffer();
+        itemCount--;
+        bytesCount -= peekedLen;
+        tags.pop();
+        havePeekedData = false;
+        return true;
+    }
+
+private:
+    MessageBufferHandle_t  buf;
+    StaticMessageBuffer_t bufStruct;
+    uint8_t data[SIZE];
+    etl::queue<Tag*, SENDER_QUEUE_SIZE> tags;
+    
+    size_t itemCount;
+    size_t bytesCount;
+
+    char peekedData[MAX_LINE_LEN];
+    uint8_t peekedLen;
+    bool havePeekedData;
+
+    bool loadFromBuffer() {
+        peekedLen = xMessageBufferReceive(buf, &peekedData[0], MAX_LINE_LEN, 0);
+        if(peekedLen==0) return false;
+        havePeekedData = true;
+        return true;
+    }
+};

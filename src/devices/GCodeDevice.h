@@ -4,7 +4,6 @@
 #include <etl/observer.h>
 //#include <etl/queue.h>
 #include "CommandQueue.h"
-#include <message_buffer.h>
 
 //#define ADD_LINECOMMENTS
 
@@ -23,22 +22,29 @@ using DeviceObserver = etl::observer<const DeviceStatusEvent&> ;
 
 using ReceivedLineHandler = std::function< void(const char* str, size_t len) >;
 
+class GCodeSender;
+using GMessage = Message<GCodeSender>;
+class GCodeSender {
+    virtual void notify(GMessage *msg) = 0;
+};
+
+template<size_t PRIORITY_BUF_SIZE, size_t BUF_SIZE>
 class GCodeDevice : public etl::observable<DeviceObserver, MAX_DEVICE_OBSERVERS> {
 public:
 
     static GCodeDevice *getDevice();
     //static void setDevice(GCodeDevice *dev);
 
-    GCodeDevice(Stream * s, size_t priorityBufSize=0, size_t bufSize=0): printerSerial(s), connected(false)  {
-        if(priorityBufSize!=0) buf0 = xMessageBufferCreate(priorityBufSize);
+    GCodeDevice(Stream * s): printerSerial(s), connected(false)  {
+        /*if(priorityBufSize!=0) buf0 = xMessageBufferCreate(priorityBufSize);
         if(bufSize!=0) buf1 = xMessageBufferCreate(bufSize);
         buf0Len = bufSize;
-        buf1Len = priorityBufSize;
+        buf1Len = priorityBufSize;*/
 
         assert(inst==nullptr);
         inst = this;
     }
-    GCodeDevice() : printerSerial(nullptr), connected(false) {}
+    //GCodeDevice() : printerSerial(nullptr), connected(false) {}
     virtual ~GCodeDevice() { clear_observers(); }
 
     virtual void begin() { 
@@ -46,32 +52,32 @@ public:
         connected=true; 
     };
 
-    virtual bool scheduleCommand(String cmd) {
-        return scheduleCommand(cmd.c_str(), cmd.length() );
+    virtual bool scheduleCommand(String cmd, GCodeSender *sender) {
+        return scheduleCommand(cmd.c_str(), cmd.length(), sender );
     };
-    virtual bool scheduleCommand(const char* cmd, size_t len) {
+    virtual bool scheduleCommand(const char* cmd, size_t len, GCodeSender *sender) {
         if(panic) return false;
-        if(!buf1) return false;
+        //if(!buf1) return false;
         if(len==0) return false;
-        return xMessageBufferSend(buf1, cmd, len, 0) != 0;
+        return buf1.push( GMessage{cmd, len, sender} );
     };
-    virtual bool schedulePriorityCommand(String cmd) { 
-        return schedulePriorityCommand(cmd.c_str(), cmd.length() );
+    virtual bool schedulePriorityCommand(String cmd, GCodeSender *sender) { 
+        return schedulePriorityCommand(cmd.c_str(), cmd.length(), sender );
     };
-    virtual bool schedulePriorityCommand( const char* cmd, size_t len) {
+    virtual bool schedulePriorityCommand( const char* cmd, size_t len, GCodeSender *sender) {
         if(panic) return false;
-        if(!buf0) return false;
+        //if(!buf0) return false;
         if(len==0) return false;
-        return xMessageBufferSend(buf0, cmd, len, 0) != 0;
+        return buf0.push( GMessage{cmd, len, sender} );
     }
     virtual bool canSchedule(size_t len) { 
         if(panic) return false;
-        if(!buf1) return false; 
+        //if(!buf1) return false; 
         if(len==0) return false;
-        return xMessageBufferSpaceAvailable(buf1) > len + 2; 
+        return buf1.canPush(len); 
     }
 
-    virtual bool jog(uint8_t axis, float dist, int feed=100)=0;
+    virtual bool jog(uint8_t axis, float dist, int feed=100, GCodeSender *sender)=0;
 
     virtual bool canJog() { return true; }
 
@@ -80,10 +86,10 @@ public:
         receiveResponses();
         checkTimeout();
 
-        if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
+        /*if(nextStatusRequestTime!=0 && millis() > nextStatusRequestTime) {
             requestStatusUpdate();
             nextStatusRequestTime = millis() + STATUS_REQUEST_INTERVAL;
-        }
+        }*/
     }
     virtual void sendCommands();
     virtual void receiveResponses();
@@ -98,25 +104,24 @@ public:
 
     bool isInPanic() { return panic; }
 
-    virtual void enableStatusUpdates(bool v=true) {
+    /*virtual void enableStatusUpdates(bool v=true) {
         if(v) nextStatusRequestTime = millis();
         else nextStatusRequestTime = 0;
-    }
+    }*/
 
     String getType() { return typeStr; }
 
     String getDescrption() { return desc; }
 
     size_t getQueueLength() {  
-        return (  buf0Len - xMessageBufferSpaceAvailable(buf0)  ) + 
-            (  buf1Len - xMessageBufferSpaceAvailable(buf1)  ); 
+        return buf0.size() + buf1.size(); 
     }
 
     size_t getSentQueueLength()  {
         return sentCounter->bytes();
     }
 
-    virtual void requestStatusUpdate() = 0;
+    virtual void requestStatusUpdate(GCodeSender *sender) = 0;
 
     void addReceivedLineHandler( ReceivedLineHandler h) { receivedLineHandlers.push_back(h); }
 
@@ -130,15 +135,13 @@ protected:
     size_t buf0Len, buf1Len;
     bool canTimeout;
 
-    static const size_t MAX_GCODE_LINE = 96;
-    char curUnsentCmd[MAX_GCODE_LINE+1], curUnsentPriorityCmd[MAX_GCODE_LINE+1];
-    size_t curUnsentCmdLen, curUnsentPriorityCmdLen;
+    static constexpr size_t MAX_GCODE_LINE = 96;
 
     float x,y,z;
     bool panic = false;
-    uint32_t nextStatusRequestTime;
-    MessageBufferHandle_t  buf0;
-    MessageBufferHandle_t  buf1;
+    //uint32_t nextStatusRequestTime;
+    MessageQueue<GCodeSender, PRIORITY_BUF_SIZE, MAX_GCODE_LINE>  buf0;
+    MessageQueue<GCodeSender, BUF_SIZE, MAX_GCODE_LINE>   buf1;
 
     bool xoff;
     bool xoffEnabled = false;
@@ -172,10 +175,9 @@ protected:
     }
 
     void cleanupQueue() { 
-        if(buf1) xMessageBufferReset(buf1); 
-        if(buf0) xMessageBufferReset(buf0); 
+        buf0.clear();
+        buf1.clear();
         sentCounter->clear();
-        curUnsentCmdLen = 0;
     }
 
     virtual void trySendCommand() = 0;
@@ -192,15 +194,15 @@ private:
 
 
 
-class GrblDevice : public GCodeDevice {
+class GrblDevice : public GCodeDevice<20,100> {
 public:
 
-    GrblDevice(Stream * s): GCodeDevice(s, 20, 100) { 
+    GrblDevice(Stream * s): GCodeDevice(s) { 
         typeStr = "grbl";
         sentCounter = &sentQueue; 
         canTimeout = false;
     };
-    GrblDevice() : GCodeDevice() {typeStr = "grbl"; sentCounter = &sentQueue; }
+    //GrblDevice() : GCodeDevice() {typeStr = "grbl"; sentCounter = &sentQueue; }
 
     virtual ~GrblDevice() {}
 
@@ -210,19 +212,19 @@ public:
 
     virtual void begin() {
         GCodeDevice::begin();
-        schedulePriorityCommand("$I");
-        schedulePriorityCommand("?");
+        schedulePriorityCommand("$I", nullptr);
+        schedulePriorityCommand("?", nullptr);
     }
 
     virtual void reset() {
         panic = false;
         cleanupQueue();
         char c = 0x18;
-        schedulePriorityCommand(&c, 1);
+        schedulePriorityCommand(&c, 1, nullptr);
     }
 
-    virtual void requestStatusUpdate() override {        
-        schedulePriorityCommand("?");
+    virtual void requestStatusUpdate(GCodeSender *sender) override {        
+        schedulePriorityCommand("?", sender);
     }
 
     /// WPos = MPos - WCO
@@ -259,48 +261,48 @@ private:
 
 
 
-class MarlinDevice: public GCodeDevice {
+class MarlinDevice: public GCodeDevice<100,200> {
 
 public:
 
-    MarlinDevice(Stream * s): GCodeDevice(s, 100, 200) { 
+    MarlinDevice(Stream * s): GCodeDevice(s) { 
         typeStr = "marlin";
         sentCounter = &sentQueue;
         canTimeout = true;
     }
-    MarlinDevice() : GCodeDevice() {typeStr = "marlin";; sentCounter = &sentQueue;}
+    //MarlinDevice() : GCodeDevice() {typeStr = "marlin";; sentCounter = &sentQueue;}
 
     virtual ~MarlinDevice() {}
 
-    virtual bool jog(uint8_t axis, float dist, int feed) override {
+    virtual bool jog(uint8_t axis, float dist, int feed, GCodeSender *sender) override {
         constexpr const char AXIS[] = {'X', 'Y', 'Z', 'E'};
         char msg[81]; snprintf(msg, 81, "G0 F%d %c%04f", feed, AXIS[axis], dist);
-        if(  xMessageBufferSpacesAvailable(buf1)>strlen(msg)+3+3+6 ) return false;
-        schedulePriorityCommand("G91");
-        schedulePriorityCommand(msg);
-        schedulePriorityCommand("G90");
+        if(!buf0.canPush(strlen(msg)+3+3) ) return false;
+        schedulePriorityCommand("G91", sender);
+        schedulePriorityCommand(msg, sender);
+        schedulePriorityCommand("G90", sender);
         return true;
     }
 
     virtual void begin() {
         GCodeDevice::begin();
-        if(! schedulePriorityCommand("M115") ) GD_DEBUGS("could not schedule M115");
-        if(! schedulePriorityCommand("M114") ) GD_DEBUGS("could not schedule M114");
-        if(! schedulePriorityCommand("M105") ) GD_DEBUGS("could not schedule M105");
+        if(! schedulePriorityCommand("M115", nullptr) ) GD_DEBUGS("could not schedule M115");
+        if(! schedulePriorityCommand("M114", nullptr) ) GD_DEBUGS("could not schedule M114");
+        if(! schedulePriorityCommand("M105", nullptr) ) GD_DEBUGS("could not schedule M105");
     }
 
     virtual void reset() {        
         cleanupQueue();
         panic = false;
-        schedulePriorityCommand("M112");
+        schedulePriorityCommand("M112", nullptr);
         //schedulePriorityCommand("M999");
     }
 
     //virtual void receiveResponses() ;
 
-    void requestStatusUpdate() override {
-        schedulePriorityCommand("M114"); // temp
-        schedulePriorityCommand("M105"); // pos
+    void requestStatusUpdate(GCodeSender *sender) override {
+        schedulePriorityCommand("M114", sender); // temp
+        schedulePriorityCommand("M105", sender); // pos
     }
 
     struct Temperature {
