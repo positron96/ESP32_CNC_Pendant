@@ -1,3 +1,4 @@
+:imagesdir: docs
 # ESPendant: A CNC Pendant That Is Also An Octoprint
 
 # Intro 
@@ -70,20 +71,21 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 # BOM
 
 * ESP32 module. 
-  I used Lolin32 board. NodeMCU and Lolin D32 should work as well
+  I used Lolin32 board (https://aliexpress.ru/item/32840971102.html?spm=a2g0s.9042311.0.0.274233edsYohWv[aliexpress]). Other ESP32 boards like DevKitC, NodeMCU and Lolin D32 should work as well (though, change of pins might be needed).
 * An encoder handwheel. 
   I used a 3D-printed wheel on top of a popular 30 ppr quadrature encoder. 
-  Handwheel can be dwnloaded here: https://www.thingiverse.com/thing:4539825
-  Commercial handwheels will work even better. 
+  Handwheel can be dwnloaded here: https://www.thingiverse.com/thing:4539825.
+  Commercial handwheels of the same size will work even better. 
 * 2 potentiometers (20K) as jog axis selector and jog multiplier selector. 
   Clicking apparatus added via 3D-printed knobs.
 * 128x64 LCD based on ST7920 chip with SPI interface. 
-  It's the same as in 3D printers.
+  A lot of 3D printers have this display.
+  I bought my from https://aliexpress.ru/item/32699482638.html?spm=a2g39.orderlist.0.0.7bda4aa6i67qgX[aliexpress].
   
-image::docs/lcd.png[display,300,200]
+image::lcd.png[display,300,200]
 
-* MicroSD slot (I used a shield for Wemos D1 Mini boards, but any will do)
-* Buttons (I have not decided on quantity yet)
+* MicroSD slot. The 3D-printed case is designed to work with a shield for Wemos D1 Mini boards (https://aliexpress.ru/item/32960577424.html?spm=a2g0s.9042311.0.0.274233edqEj1b4[aliexpress]), code will work with any other module.
+* 3 Buttons (https://aliexpress.ru/item/32680616747.html?spm=a2g39.orderlist.0.0.7bda4aa6i67qgX[aliexpress])
 * 2 resistors or level shifter for 5V UART
 * Might be needed: level shifter for 5V LCD, diode+resistor for LCD SPI bugfix
 * wires, cable, connector for 3D printer and CNC boards 
@@ -92,7 +94,7 @@ image::docs/lcd.png[display,300,200]
   Building of the case, with 3D files, is described here
   https://www.thingiverse.com/thing:4539827
 
-image::docs/case-render.png[render of case,640,480]
+image::case-render.png[render of case,640,480]
 
 # Notes
 
