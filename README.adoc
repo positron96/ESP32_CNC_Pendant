@@ -68,7 +68,9 @@ The case is modeled in Fusion 360 and will be published on thingiverse once prot
 * [ ] Settings window for connecting to a WiFi network etc.
   This idea might be dropped since entering WiFi password would be a pain.
 
-# BOM
+# Schematic and BOM
+
+image:Schematic_espendant_2022-02-24.png[]
 
 * ESP32 module. 
   I used Lolin32 board (https://aliexpress.ru/item/32840971102.html?spm=a2g0s.9042311.0.0.274233edsYohWv[aliexpress]). Other ESP32 boards like DevKitC, NodeMCU and Lolin D32 should work as well (though, change of pins might be needed).
