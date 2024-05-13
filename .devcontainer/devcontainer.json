@@ -1,0 +1,15 @@
+{
+    "name": "PlatformIO",
+    "image": "mcr.microsoft.com/devcontainers/universal:2",
+    "customizations": {
+		"vscode": {
+			"settings": {},
+			"extensions": [
+				"platformio.platformio-ide",
+				"mhutchie.git-graph",
+                "asciidoctor.asciidoctor-vscode"
+			]
+		}
+	},
+    "postCreateCommand": "pio pkg install"
+}
