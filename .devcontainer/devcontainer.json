@@ -6,7 +6,7 @@
 			"settings": {},
 			"extensions": [
 				"platformio.platformio-ide",
-				"mhutchie.git-graph",
+				"Gxl.git-graph-3",
                 "asciidoctor.asciidoctor-vscode"
 			]
 		}
